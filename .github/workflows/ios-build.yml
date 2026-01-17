@@ -58,6 +58,7 @@ on:
           - iphone_and_ipad
           - iphone_only
           - ipad_only
+          - macos_only
         default: 'all_devices'
       
       # Build Options
@@ -184,52 +185,143 @@ jobs:
       - name: Configure Target Platform
         working-directory: app/ios/App
         run: |
-          # Set target devices based on selection
+          # Set target devices and build type based on selection
+          IS_CATALYST="false"
+          
           case "${{ inputs.target_platform }}" in
             "iphone_only")
-              DESTINATION="generic/platform=iOS"
+              DESTINATION="generic/platform=iOS Simulator"
               DEVICES="1"  # iPhone only
               ;;
             "ipad_only")
-              DESTINATION="generic/platform=iOS"
+              DESTINATION="generic/platform=iOS Simulator"
               DEVICES="2"  # iPad only
               ;;
             "iphone_and_ipad")
-              DESTINATION="generic/platform=iOS"
+              DESTINATION="generic/platform=iOS Simulator"
               DEVICES="1,2"  # iPhone + iPad
               ;;
-            *)  # all_devices (default) - iPhone + iPad + Mac
+            "macos_only")
+              DESTINATION="generic/platform=macOS,variant=Mac Catalyst"
+              DEVICES="1,2"
+              IS_CATALYST="true"
+              ;;
+            *)  # all_devices (default) - iPhone + iPad + Mac Catalyst
               DESTINATION="generic/platform=macOS,variant=Mac Catalyst"
               DEVICES="1,2"  # Universal + Mac
+              IS_CATALYST="true"
               ;;
           esac
           
+          # Determine export format based on build mode
+          if [ "${{ inputs.build_mode }}" == "build_only" ]; then
+            EXPORT_FORMAT="app"
+          else
+            EXPORT_FORMAT="ipa"
+          fi
+          
           echo "DESTINATION=$DESTINATION" >> $GITHUB_ENV
           echo "TARGET_DEVICES=$DEVICES" >> $GITHUB_ENV
-          echo "Building for: ${{ inputs.target_platform }}"
+          echo "IS_CATALYST=$IS_CATALYST" >> $GITHUB_ENV
+          echo "EXPORT_FORMAT=$EXPORT_FORMAT" >> $GITHUB_ENV
+          echo "Building for: ${{ inputs.target_platform }} (format: $EXPORT_FORMAT)"
       
-      - name: Build iOS App
+      - name: Build App
         working-directory: app/ios/App
         run: |
-          if [ "${{ inputs.target_platform }}" == "all_devices" ]; then
-            # Build for Mac Catalyst (includes iPhone + iPad + Mac)
-            fastlane run build_app \
-              workspace:"App.xcworkspace" \
-              scheme:"App" \
-              catalyst_platform:"macos" \
-              export_method:"app-store" \
-              output_directory:"." \
-              output_name:"App.ipa" \
-              clean:true
+          # Determine output format based on build mode
+          if [ "${{ inputs.build_mode }}" == "build_only" ]; then
+            # Build .app for simulator/VM testing
+            
+            if [ "${{ inputs.target_platform }}" == "all_devices" ]; then
+              # ALL DEVICES: Build BOTH iOS Simulator AND macOS apps
+              echo "🔨 Building iOS Simulator app..."
+              xcodebuild -workspace App.xcworkspace \
+                -scheme App \
+                -configuration Release \
+                -destination "generic/platform=iOS Simulator" \
+                -derivedDataPath build-simulator \
+                CODE_SIGN_IDENTITY="-" \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO
+              
+              # Find and zip iOS Simulator .app
+              APP_PATH=$(find build-simulator -name "*.app" -type d | head -1)
+              cp -R "$APP_PATH" ./App-iOS-Simulator.app
+              zip -r App-iOS-Simulator.app.zip App-iOS-Simulator.app
+              
+              echo "🔨 Building macOS (Mac Catalyst) app..."
+              xcodebuild -workspace App.xcworkspace \
+                -scheme App \
+                -configuration Release \
+                -destination "generic/platform=macOS,variant=Mac Catalyst" \
+                -derivedDataPath build-macos \
+                SUPPORTS_MACCATALYST=YES \
+                CODE_SIGN_IDENTITY="-" \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO
+              
+              # Find and zip macOS .app
+              APP_PATH=$(find build-macos -name "*.app" -type d | head -1)
+              cp -R "$APP_PATH" ./App-macOS.app
+              zip -r App-macOS.app.zip App-macOS.app
+              
+              echo "✅ Built both iOS Simulator and macOS apps"
+              
+            elif [ "$IS_CATALYST" == "true" ]; then
+              # macos_only: Mac Catalyst build only
+              xcodebuild -workspace App.xcworkspace \
+                -scheme App \
+                -configuration Release \
+                -destination "$DESTINATION" \
+                -derivedDataPath build \
+                SUPPORTS_MACCATALYST=YES \
+                CODE_SIGN_IDENTITY="-" \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO
+              
+              APP_PATH=$(find build -name "*.app" -type d | head -1)
+              cp -R "$APP_PATH" ./App.app
+              zip -r App.app.zip App.app
+              
+            else
+              # iPhone/iPad only: iOS Simulator build
+              xcodebuild -workspace App.xcworkspace \
+                -scheme App \
+                -configuration Release \
+                -destination "$DESTINATION" \
+                -derivedDataPath build \
+                CODE_SIGN_IDENTITY="-" \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO
+              
+              APP_PATH=$(find build -name "*.app" -type d | head -1)
+              cp -R "$APP_PATH" ./App.app
+              zip -r App.app.zip App.app
+            fi
+            
           else
-            # Build for iOS only (iPhone/iPad)
-            fastlane run build_app \
-              workspace:"App.xcworkspace" \
-              scheme:"App" \
-              export_method:"app-store" \
-              output_directory:"." \
-              output_name:"App.ipa" \
-              clean:true
+            # Build .ipa for App Store submission
+            if [ "$IS_CATALYST" == "true" ]; then
+              # Mac Catalyst for App Store
+              fastlane run build_app \
+                workspace:"App.xcworkspace" \
+                scheme:"App" \
+                catalyst_platform:"macos" \
+                export_method:"app-store" \
+                output_directory:"." \
+                output_name:"App.ipa" \
+                clean:true
+            else
+              # iOS for App Store
+              fastlane run build_app \
+                workspace:"App.xcworkspace" \
+                scheme:"App" \
+                export_method:"app-store" \
+                output_directory:"." \
+                output_name:"App.ipa" \
+                clean:true
+            fi
           fi
       
       - name: Upload to App Store
@@ -250,12 +342,30 @@ jobs:
             skip_screenshots:true \
             submit_for_review:false
       
-      - name: Upload IPA Artifact
-        if: inputs.build_mode == 'build_only'
+      # Upload artifacts for all_devices (two separate artifacts)
+      - name: Upload iOS Simulator Artifact
+        if: inputs.build_mode == 'build_only' && inputs.target_platform == 'all_devices'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-iOS-Simulator-${{ inputs.version }}
+          path: app/ios/App/App-iOS-Simulator.app.zip
+          retention-days: 30
+      
+      - name: Upload macOS Artifact
+        if: inputs.build_mode == 'build_only' && inputs.target_platform == 'all_devices'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-macOS-${{ inputs.version }}
+          path: app/ios/App/App-macOS.app.zip
+          retention-days: 30
+      
+      # Upload single artifact for other targets
+      - name: Upload App Artifact
+        if: inputs.build_mode == 'build_only' && inputs.target_platform != 'all_devices'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app_name }}-${{ inputs.target_platform }}-${{ inputs.version }}
-          path: app/ios/App/App.ipa
+          path: app/ios/App/App.app.zip
           retention-days: 30
       
       - name: Build Summary
@@ -266,7 +376,13 @@ jobs:
           echo "**Bundle ID:** ${{ inputs.bundle_id }}" >> $GITHUB_STEP_SUMMARY
           echo "**Platform:** ${{ inputs.target_platform }}" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.build_mode }}" == "build_only" ]; then
-            echo "📦 Download IPA from Artifacts" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ inputs.target_platform }}" == "all_devices" ]; then
+              echo "📦 **Two artifacts available:**" >> $GITHUB_STEP_SUMMARY
+              echo "- 📱 iOS Simulator .app (drag into Simulator)" >> $GITHUB_STEP_SUMMARY
+              echo "- 🖥️ macOS .app (double-click to run)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "📦 Download .app from Artifacts (unzip to use)" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "🚀 Uploaded to App Store Connect" >> $GITHUB_STEP_SUMMARY
           fi
