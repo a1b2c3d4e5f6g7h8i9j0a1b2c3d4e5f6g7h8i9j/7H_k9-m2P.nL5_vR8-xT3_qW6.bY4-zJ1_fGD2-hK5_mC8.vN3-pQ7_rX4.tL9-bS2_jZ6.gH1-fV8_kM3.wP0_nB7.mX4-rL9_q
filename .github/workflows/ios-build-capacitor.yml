@@ -123,8 +123,9 @@ jobs:
             APP_ID=$(echo "$CONFIG_CONTENT" | jq -r '.appId // empty')
           elif [ -f "capacitor.config.ts" ]; then
             echo "📖 Reading from capacitor.config.ts"
-            APP_NAME=$(grep -oP "appName:\s*['\"]\K[^'\"]+" capacitor.config.ts || echo "")
-            APP_ID=$(grep -oP "appId:\s*['\"]\K[^'\"]+" capacitor.config.ts || echo "")
+            # Use sed instead of grep -P (not available on macOS BSD)
+            APP_NAME=$(sed -n "s/.*appName:[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" capacitor.config.ts | head -1)
+            APP_ID=$(sed -n "s/.*appId:[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" capacitor.config.ts | head -1)
           else
             echo "❌ Error: No capacitor.config.json or capacitor.config.ts found!"
             echo "This workflow requires a valid Capacitor project."
