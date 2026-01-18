@@ -1,4 +1,4 @@
-name: iOS Build Service
+name: iOS Build Capacitor Service
 
 on:
   workflow_dispatch:
@@ -26,17 +26,7 @@ on:
         required: false
         type: string
       
-      # App Configuration
-      app_name:
-        description: 'App display name'
-        required: true
-        type: string
-      
-      bundle_id:
-        description: 'Bundle ID (e.g., com.company.app)'
-        required: true
-        type: string
-      
+
       version:
         description: 'Version (e.g., 1.0.0)'
         required: false
@@ -98,17 +88,18 @@ jobs:
     steps:
       - name: Parse Apple Credentials
         id: apple
+        env:
+          APPLE_CREDS: ${{ inputs.apple_credentials }}
         run: |
-          # Parse the JSON credentials
-          CREDS='${{ inputs.apple_credentials }}'
+          # Parse the JSON credentials (using env var to avoid shell quoting issues)
           
           # Extract values using jq
-          echo "team_id=$(echo "$CREDS" | jq -r '.team_id')" >> $GITHUB_OUTPUT
-          echo "certificate_base64=$(echo "$CREDS" | jq -r '.certificate_base64')" >> $GITHUB_OUTPUT
-          echo "certificate_password=$(echo "$CREDS" | jq -r '.certificate_password')" >> $GITHUB_OUTPUT
-          echo "api_key_id=$(echo "$CREDS" | jq -r '.api_key_id')" >> $GITHUB_OUTPUT
-          echo "api_issuer_id=$(echo "$CREDS" | jq -r '.api_issuer_id')" >> $GITHUB_OUTPUT
-          echo "api_key_base64=$(echo "$CREDS" | jq -r '.api_key_base64')" >> $GITHUB_OUTPUT
+          echo "team_id=$(echo "$APPLE_CREDS" | jq -r '.team_id')" >> $GITHUB_OUTPUT
+          echo "certificate_base64=$(echo "$APPLE_CREDS" | jq -r '.certificate_base64')" >> $GITHUB_OUTPUT
+          echo "certificate_password=$(echo "$APPLE_CREDS" | jq -r '.certificate_password')" >> $GITHUB_OUTPUT
+          echo "api_key_id=$(echo "$APPLE_CREDS" | jq -r '.api_key_id')" >> $GITHUB_OUTPUT
+          echo "api_issuer_id=$(echo "$APPLE_CREDS" | jq -r '.api_issuer_id')" >> $GITHUB_OUTPUT
+          echo "api_key_base64=$(echo "$APPLE_CREDS" | jq -r '.api_key_base64')" >> $GITHUB_OUTPUT
           
           echo "✅ Apple credentials parsed successfully"
       
@@ -119,6 +110,42 @@ jobs:
           ref: ${{ inputs.repository_branch }}
           token: ${{ inputs.is_private_repo && inputs.github_token || github.token }}
           path: app
+      
+      - name: Read Capacitor Config
+        id: capacitor
+        working-directory: app
+        run: |
+          # Read app configuration from capacitor.config.json or capacitor.config.ts
+          if [ -f "capacitor.config.json" ]; then
+            echo "📖 Reading from capacitor.config.json"
+            CONFIG_CONTENT=$(cat capacitor.config.json)
+            APP_NAME=$(echo "$CONFIG_CONTENT" | jq -r '.appName // empty')
+            APP_ID=$(echo "$CONFIG_CONTENT" | jq -r '.appId // empty')
+          elif [ -f "capacitor.config.ts" ]; then
+            echo "📖 Reading from capacitor.config.ts"
+            APP_NAME=$(grep -oP "appName:\s*['\"]\K[^'\"]+" capacitor.config.ts || echo "")
+            APP_ID=$(grep -oP "appId:\s*['\"]\K[^'\"]+" capacitor.config.ts || echo "")
+          else
+            echo "❌ Error: No capacitor.config.json or capacitor.config.ts found!"
+            echo "This workflow requires a valid Capacitor project."
+            exit 1
+          fi
+          
+          # Validate required values exist
+          if [ -z "$APP_NAME" ]; then
+            echo "❌ Error: 'appName' not found in capacitor config!"
+            echo "Please add 'appName' to your capacitor.config.json or capacitor.config.ts"
+            exit 1
+          fi
+          if [ -z "$APP_ID" ]; then
+            echo "❌ Error: 'appId' not found in capacitor config!"
+            echo "Please add 'appId' (bundle ID) to your capacitor.config.json or capacitor.config.ts"
+            exit 1
+          fi
+          
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "bundle_id=$APP_ID" >> $GITHUB_OUTPUT
+          echo "✅ App: $APP_NAME ($APP_ID)"
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -173,8 +200,8 @@ jobs:
       - name: Update App Info
         working-directory: app/ios/App
         run: |
-          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${{ inputs.app_name }}" App/Info.plist || \
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string ${{ inputs.app_name }}" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${{ steps.capacitor.outputs.app_name }}" App/Info.plist || \
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string ${{ steps.capacitor.outputs.app_name }}" App/Info.plist
           
           if [ -n "${{ inputs.build_number }}" ]; then
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ inputs.build_number }}" App/Info.plist
@@ -347,7 +374,7 @@ jobs:
         if: inputs.build_mode == 'build_only' && inputs.target_platform == 'all_devices'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app_name }}-iOS-Simulator-${{ inputs.version }}
+          name: ${{ steps.capacitor.outputs.app_name }}-iOS-Simulator-${{ inputs.version }}
           path: app/ios/App/App-iOS-Simulator.app.zip
           retention-days: 30
       
@@ -355,7 +382,7 @@ jobs:
         if: inputs.build_mode == 'build_only' && inputs.target_platform == 'all_devices'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app_name }}-macOS-${{ inputs.version }}
+          name: ${{ steps.capacitor.outputs.app_name }}-macOS-${{ inputs.version }}
           path: app/ios/App/App-macOS.app.zip
           retention-days: 30
       
@@ -364,16 +391,16 @@ jobs:
         if: inputs.build_mode == 'build_only' && inputs.target_platform != 'all_devices'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app_name }}-${{ inputs.target_platform }}-${{ inputs.version }}
+          name: ${{ steps.capacitor.outputs.app_name }}-${{ inputs.target_platform }}-${{ inputs.version }}
           path: app/ios/App/App.app.zip
           retention-days: 30
       
       - name: Build Summary
         run: |
           echo "## ✅ Build Complete!" >> $GITHUB_STEP_SUMMARY
-          echo "**App:** ${{ inputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**App:** ${{ steps.capacitor.outputs.app_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Bundle ID:** ${{ inputs.bundle_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Bundle ID:** ${{ steps.capacitor.outputs.bundle_id }}" >> $GITHUB_STEP_SUMMARY
           echo "**Platform:** ${{ inputs.target_platform }}" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.build_mode }}" == "build_only" ]; then
             if [ "${{ inputs.target_platform }}" == "all_devices" ]; then
