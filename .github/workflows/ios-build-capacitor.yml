@@ -363,6 +363,66 @@ jobs:
           
           ruby enable_catalyst.rb
 
+      - name: Switch to CocoaPods (Catalyst Workaround)
+        if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
+        working-directory: app/ios/App
+        run: |
+          echo "🔄 Switching dependency manager to CocoaPods for Catalyst source build..."
+          
+          # 1. Remove SPM References from Project
+          cat <<EOF > remove_spm.rb
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('App.xcodeproj')
+          
+          # Remove package references (Remote)
+          project.root_object.package_references.each(&:remove_from_project)
+          
+          project.targets.each do |target|
+             # Remove package product dependencies
+             target.package_product_dependencies.each(&:remove_from_project)
+             
+             # Remove embedded frameworks from SPM
+             target.frameworks_build_phase.files.select { |f| 
+               f.product_ref.is_a?(Xcodeproj::Project::Object::XCSwiftPackageProductDependency) 
+             }.each(&:remove_from_project)
+          end
+          project.save
+          puts "✅ Removed SPM references from App.xcodeproj"
+          EOF
+          
+          ruby remove_spm.rb
+          
+          # 2. Create Podfile
+          # We point to local plugin paths in node_modules to build from source
+          cat <<EOF > Podfile
+          require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+
+          platform :ios, '13.0'
+          use_frameworks!
+
+          target 'App' do
+            config = use_capacitor_pods!
+          end
+          
+          post_install do |installer|
+            installer.generated_projects.each do |project|
+              project.targets.each do |target|
+                target.build_configurations.each do |config|
+                  # Ensure Catalyst validation passes
+                  config.build_settings['SUPPORTS_MACCATALYST'] = 'YES'
+                end
+              end
+            end
+          end
+          EOF
+          
+          puts "✅ Created Podfile"
+          
+          # 3. Install Pods
+          pod install --repo-update
+          
+          echo "✅ CocoaPods migration complete. Workspace created."
+
       - name: Build App
         working-directory: app/ios/App
         run: |
