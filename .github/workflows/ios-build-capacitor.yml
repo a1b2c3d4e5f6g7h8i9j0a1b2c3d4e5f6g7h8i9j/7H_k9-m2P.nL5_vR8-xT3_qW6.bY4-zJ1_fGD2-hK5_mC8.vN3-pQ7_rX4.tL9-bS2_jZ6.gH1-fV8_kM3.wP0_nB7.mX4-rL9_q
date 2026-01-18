@@ -19,13 +19,12 @@ on:
         description: 'Is repository private?'
         required: true
         type: boolean
-        default: false
+        default: true
       
       github_token:
         description: 'GitHub token (only for private repos)'
         required: false
         type: string
-        default: true
 
       version:
         description: 'Version (e.g., 1.0.0)'
