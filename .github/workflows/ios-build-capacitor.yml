@@ -243,10 +243,22 @@ jobs:
             echo "✅ Web directory '$WEB_DIR' found."
           fi
 
-          # Force CocoaPods instead of SPM (ensures App.xcworkspace is created)
-          npx cap sync ios --packagemanager CocoaPods
+          # Force CocoaPods instead of SPM
+          # The --packagemanager flag only works with 'cap add', not 'cap sync'
+          # So we remove and re-add the iOS platform to ensure CocoaPods is used
           
-          # Ensure pods are installed (creates/updates App.xcworkspace)
+          if [ -d "ios" ]; then
+            echo "📦 Removing existing iOS folder to force CocoaPods..."
+            rm -rf ios
+          fi
+          
+          echo "➕ Adding iOS platform with CocoaPods..."
+          npx cap add ios --packagemanager CocoaPods
+          
+          echo "🔄 Syncing Capacitor iOS..."
+          npx cap sync ios
+          
+          echo "📦 Running pod install..."
           cd ios/App && pod install
       
       - name: Setup Fastlane
