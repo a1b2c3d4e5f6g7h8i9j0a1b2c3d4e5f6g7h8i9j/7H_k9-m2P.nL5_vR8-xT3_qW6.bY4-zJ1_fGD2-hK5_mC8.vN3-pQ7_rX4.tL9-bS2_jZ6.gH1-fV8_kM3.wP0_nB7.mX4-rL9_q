@@ -25,7 +25,7 @@ on:
         description: 'GitHub token (only for private repos)'
         required: false
         type: string
-      
+        default: true
 
       version:
         description: 'Version (e.g., 1.0.0)'
@@ -148,10 +148,49 @@ jobs:
           echo "bundle_id=$APP_ID" >> $GITHUB_OUTPUT
           echo "✅ App: $APP_NAME ($APP_ID)"
       
+      - name: Detect Node Version
+        id: node_version
+        working-directory: app
+        run: |
+          echo "🔍 Detecting required Node.js version..."
+          if [ -f "package.json" ]; then
+            # Extract @capacitor/core version (dependencies or devDependencies)
+            CAP_VER=$(jq -r '.dependencies["@capacitor/core"] // .devDependencies["@capacitor/core"] // empty' package.json)
+            
+            if [ -z "$CAP_VER" ]; then
+              echo "⚠️ Could not find @capacitor/core in package.json. Defaulting to Node 20."
+              NODE_VER="20"
+            else
+              echo "Found @capacitor/core: $CAP_VER"
+              # Extract major version number (remove ^, ~, etc)
+              MAJOR_VER=$(echo "$CAP_VER" | sed 's/[^0-9.]//g' | cut -d. -f1)
+              
+              if [ "$MAJOR_VER" -ge 8 ]; then
+                echo "⚡ Capacitor 8+ detected. Using Node 22."
+                NODE_VER="22"
+              elif [ "$MAJOR_VER" -eq 7 ] || [ "$MAJOR_VER" -eq 6 ]; then
+                echo "⚡ Capacitor 6/7 detected. Using Node 20."
+                NODE_VER="20"
+              elif [ "$MAJOR_VER" -le 5 ]; then
+                echo "⚡ Capacitor 5 or older detected. Using Node 18."
+                NODE_VER="18"
+              else
+                # Fallback
+                echo "⚠️ Unknown version version. Defaulting to Node 20."
+                NODE_VER="20"
+              fi
+            fi
+          else
+            echo "⚠️ No package.json found. Defaulting to Node 20."
+            NODE_VER="20"
+          fi
+          
+          echo "version=$NODE_VER" >> $GITHUB_OUTPUT
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ steps.node_version.outputs.version }}
           cache: 'npm'
           cache-dependency-path: app/package-lock.json
       
