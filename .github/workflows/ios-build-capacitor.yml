@@ -416,7 +416,7 @@ jobs:
           end
           EOF
           
-          puts "✅ Created Podfile"
+          echo "✅ Created Podfile"
           
           # 3. Install Pods
           pod install --repo-update
