@@ -279,9 +279,6 @@ jobs:
       - name: Update App Info
         working-directory: app/ios/App
         run: |
-          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${{ steps.capacitor.outputs.app_name }}" App/Info.plist || \
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string ${{ steps.capacitor.outputs.app_name }}" App/Info.plist
-          
           if [ -n "${{ inputs.build_number }}" ]; then
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ inputs.build_number }}" App/Info.plist
           fi
@@ -336,13 +333,30 @@ jobs:
         working-directory: app/ios/App
         run: |
           # Determine output format based on build mode
+          
+          # First, detect Workspace vs Project to avoid errors
+          # Some Capacitor setups (no plugins/pods) use xcodeproj directly
+          if [ -d "App.xcworkspace" ]; then
+            echo "✅ Found App.xcworkspace. Using Workspace build."
+            XC_ARG="-workspace App.xcworkspace"
+            FL_ARG="workspace:\"App.xcworkspace\""
+          elif [ -d "App.xcodeproj" ]; then
+            echo "ℹ️ App.xcworkspace not found. Using App.xcodeproj build."
+            XC_ARG="-project App.xcodeproj"
+            FL_ARG="project:\"App.xcodeproj\""
+          else
+            echo "❌ Error: Neither App.xcworkspace nor App.xcodeproj found in $(pwd)"
+            ls -la
+            exit 1
+          fi
+
           if [ "${{ inputs.build_mode }}" == "build_only" ]; then
             # Build .app for simulator/VM testing
             
             if [ "${{ inputs.target_platform }}" == "all_devices" ]; then
               # ALL DEVICES: Build BOTH iOS Simulator AND macOS apps
               echo "🔨 Building iOS Simulator app..."
-              xcodebuild -workspace App.xcworkspace \
+              xcodebuild $XC_ARG \
                 -scheme App \
                 -configuration Release \
                 -destination "generic/platform=iOS Simulator" \
@@ -357,7 +371,7 @@ jobs:
               zip -r App-iOS-Simulator.app.zip App-iOS-Simulator.app
               
               echo "🔨 Building macOS (Mac Catalyst) app..."
-              xcodebuild -workspace App.xcworkspace \
+              xcodebuild $XC_ARG \
                 -scheme App \
                 -configuration Release \
                 -destination "generic/platform=macOS,variant=Mac Catalyst" \
@@ -376,7 +390,7 @@ jobs:
               
             elif [ "$IS_CATALYST" == "true" ]; then
               # macos_only: Mac Catalyst build only
-              xcodebuild -workspace App.xcworkspace \
+              xcodebuild $XC_ARG \
                 -scheme App \
                 -configuration Release \
                 -destination "$DESTINATION" \
@@ -392,7 +406,7 @@ jobs:
               
             else
               # iPhone/iPad only: iOS Simulator build
-              xcodebuild -workspace App.xcworkspace \
+              xcodebuild $XC_ARG \
                 -scheme App \
                 -configuration Release \
                 -destination "$DESTINATION" \
@@ -411,7 +425,7 @@ jobs:
             if [ "$IS_CATALYST" == "true" ]; then
               # Mac Catalyst for App Store
               fastlane run build_app \
-                workspace:"App.xcworkspace" \
+                $FL_ARG \
                 scheme:"App" \
                 catalyst_platform:"macos" \
                 export_method:"app-store" \
@@ -421,7 +435,7 @@ jobs:
             else
               # iOS for App Store
               fastlane run build_app \
-                workspace:"App.xcworkspace" \
+                $FL_ARG \
                 scheme:"App" \
                 export_method:"app-store" \
                 output_directory:"." \
