@@ -114,38 +114,49 @@ jobs:
         id: capacitor
         working-directory: app
         run: |
-          # Read app configuration from capacitor.config.json or capacitor.config.ts
+          # 1. Identify Config File
           if [ -f "capacitor.config.json" ]; then
             echo "📖 Reading from capacitor.config.json"
-            CONFIG_CONTENT=$(cat capacitor.config.json)
-            APP_NAME=$(echo "$CONFIG_CONTENT" | jq -r '.appName // empty')
-            APP_ID=$(echo "$CONFIG_CONTENT" | jq -r '.appId // empty')
+            CONFIG_FILE="capacitor.config.json"
+            IS_JSON=true
           elif [ -f "capacitor.config.ts" ]; then
             echo "📖 Reading from capacitor.config.ts"
-            # Use sed instead of grep -P (not available on macOS BSD)
-            APP_NAME=$(sed -n "s/.*appName:[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" capacitor.config.ts | head -1)
-            APP_ID=$(sed -n "s/.*appId:[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" capacitor.config.ts | head -1)
+            CONFIG_FILE="capacitor.config.ts"
+            IS_JSON=false
           else
             echo "❌ Error: No capacitor.config.json or capacitor.config.ts found!"
-            echo "This workflow requires a valid Capacitor project."
             exit 1
           fi
-          
-          # Validate required values exist
-          if [ -z "$APP_NAME" ]; then
-            echo "❌ Error: 'appName' not found in capacitor config!"
-            echo "Please add 'appName' to your capacitor.config.json or capacitor.config.ts"
+
+          # 2. Extract Values
+          if [ "$IS_JSON" = true ]; then
+            CONFIG_CONTENT=$(cat "$CONFIG_FILE")
+            APP_NAME=$(echo "$CONFIG_CONTENT" | jq -r '.appName // empty')
+            APP_ID=$(echo "$CONFIG_CONTENT" | jq -r '.appId // empty')
+            WEB_DIR=$(echo "$CONFIG_CONTENT" | jq -r '.webDir // "www"')
+          else
+            # TypeScript regex extraction (basic)
+            APP_NAME=$(sed -n "s/.*appName:[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" "$CONFIG_FILE" | head -1)
+            APP_ID=$(sed -n "s/.*appId:[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" "$CONFIG_FILE" | head -1)
+            WEB_DIR=$(sed -n "s/.*webDir:[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" "$CONFIG_FILE" | head -1)
+            
+            # Default to www if not found
+            if [ -z "$WEB_DIR" ]; then
+              WEB_DIR="www"
+            fi
+          fi
+
+          # 3. Validate
+          if [ -z "$APP_NAME" ] || [ -z "$APP_ID" ]; then
+            echo "❌ Error: 'appName' or 'appId' missing in config!"
             exit 1
           fi
-          if [ -z "$APP_ID" ]; then
-            echo "❌ Error: 'appId' not found in capacitor config!"
-            echo "Please add 'appId' (bundle ID) to your capacitor.config.json or capacitor.config.ts"
-            exit 1
-          fi
-          
+
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           echo "bundle_id=$APP_ID" >> $GITHUB_OUTPUT
+          echo "web_dir=$WEB_DIR" >> $GITHUB_OUTPUT
           echo "✅ App: $APP_NAME ($APP_ID)"
+          echo "📂 Web Dir: $WEB_DIR"
       
       - name: Detect Node Version
         id: node_version
@@ -203,7 +214,33 @@ jobs:
       
       - name: Sync Capacitor iOS
         working-directory: app
-        run: npx cap sync ios
+        run: |
+          WEB_DIR="${{ steps.capacitor.outputs.web_dir }}"
+          echo "🔍 Checking web directory: $WEB_DIR"
+
+          if [ ! -d "$WEB_DIR" ]; then
+            echo "⚠️ Web directory '$WEB_DIR' not found!"
+            
+            # Search for common alternatives
+            if [ -d "dist" ]; then
+              echo "✅ Found 'dist'. Renaming to '$WEB_DIR'..."
+              mv dist "$WEB_DIR"
+            elif [ -d "build" ]; then
+              echo "✅ Found 'build'. Renaming to '$WEB_DIR'..."
+              mv build "$WEB_DIR"
+            elif [ -d "public" ]; then
+              echo "✅ Found 'public'. Renaming to '$WEB_DIR'..."
+              mv public "$WEB_DIR"
+            else
+              echo "❌ Could not find build output (dist, build, public). Validation failed."
+              ls -F
+              exit 1
+            fi
+          else
+            echo "✅ Web directory '$WEB_DIR' exists."
+          fi
+
+          npx cap sync ios
       
       - name: Setup Ruby & Fastlane
         run: |
