@@ -219,17 +219,17 @@ jobs:
           echo "🔍 Checking web directory: $WEB_DIR"
 
           if [ ! -d "$WEB_DIR" ]; then
-            echo "⚠️ Web directory '$WEB_DIR' not found!"
+            echo "ℹ️ Directory '$WEB_DIR' does not exist. Checking for build output..."
             
             # Search for common alternatives
             if [ -d "dist" ]; then
-              echo "✅ Found 'dist'. Renaming to '$WEB_DIR'..."
+              echo "✅ Found 'dist'. Moving to '$WEB_DIR'..."
               mv dist "$WEB_DIR"
             elif [ -d "build" ]; then
-              echo "✅ Found 'build'. Renaming to '$WEB_DIR'..."
+              echo "✅ Found 'build'. Moving to '$WEB_DIR'..."
               mv build "$WEB_DIR"
             elif [ -d "public" ]; then
-              echo "✅ Found 'public'. Renaming to '$WEB_DIR'..."
+              echo "✅ Found 'public'. Moving to '$WEB_DIR'..."
               mv public "$WEB_DIR"
             else
               echo "❌ Could not find build output (dist, build, public). Validation failed."
@@ -237,7 +237,7 @@ jobs:
               exit 1
             fi
           else
-            echo "✅ Web directory '$WEB_DIR' exists."
+            echo "✅ Web directory '$WEB_DIR' found."
           fi
 
           npx cap sync ios
