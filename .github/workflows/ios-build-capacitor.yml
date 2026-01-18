@@ -212,6 +212,9 @@ jobs:
         working-directory: app
         run: ${{ inputs.npm_build_command }}
       
+      - name: Setup CocoaPods
+        run: gem install cocoapods
+      
       - name: Sync Capacitor iOS
         working-directory: app
         run: |
@@ -240,13 +243,50 @@ jobs:
             echo "✅ Web directory '$WEB_DIR' found."
           fi
 
-          npx cap sync ios
+          # Force CocoaPods instead of SPM (ensures App.xcworkspace is created)
+          npx cap sync ios --packagemanager CocoaPods
+          
+          # Ensure pods are installed (creates/updates App.xcworkspace)
+          cd ios/App && pod install
       
-      - name: Setup Ruby & Fastlane
+      - name: Setup Fastlane
+        run: gem install fastlane
+      
+      - name: Setup xcodeproj gem
+        run: gem install xcodeproj
+      
+      - name: Enable Mac Catalyst Support
+        if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
+        working-directory: app/ios/App
         run: |
-          gem install fastlane
-          gem install cocoapods
-          gem install xcodeproj
+          echo "🔧 Enabling Mac Catalyst in App.xcodeproj..."
+          
+          # Create ruby script to modify project
+          cat <<EOF > enable_catalyst.rb
+          require 'xcodeproj'
+          project_path = 'App.xcodeproj'
+          project = Xcodeproj::Project.open(project_path)
+          
+          targets = project.targets.select { |t| t.name == 'App' }
+          if targets.empty?
+            puts "❌ Error: Target 'App' not found!"
+            exit(1)
+          end
+          
+          targets.each do |target|
+            puts "Found target: #{target.name}"
+            target.build_configurations.each do |config|
+              puts "  - Enabling Catalyst for config: #{config.name}"
+              config.build_settings['SUPPORTS_MACCATALYST'] = 'YES'
+              config.build_settings['SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD'] = 'NO'
+            end
+          end
+          
+          project.save
+          puts "✅ Saved changes to App.xcodeproj"
+          EOF
+          
+          ruby enable_catalyst.rb
       
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -330,99 +370,6 @@ jobs:
           echo "EXPORT_FORMAT=$EXPORT_FORMAT" >> $GITHUB_ENV
           echo "Building for: ${{ inputs.target_platform }} (format: $EXPORT_FORMAT)"
       
-      - name: Enable Mac Catalyst Support
-        if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
-        working-directory: app/ios/App
-        run: |
-          echo "🔧 Enabling Mac Catalyst in App.xcodeproj..."
-          
-          # Create ruby script to modify project
-          cat <<EOF > enable_catalyst.rb
-          require 'xcodeproj'
-          project_path = 'App.xcodeproj'
-          project = Xcodeproj::Project.open(project_path)
-          
-          targets = project.targets.select { |t| t.name == 'App' }
-          if targets.empty?
-            puts "❌ Error: Target 'App' not found!"
-            exit(1)
-          end
-          
-          targets.each do |target|
-            puts "Found target: #{target.name}"
-            target.build_configurations.each do |config|
-              puts "  - Enabling Catalyst for config: #{config.name}"
-              config.build_settings['SUPPORTS_MACCATALYST'] = 'YES'
-              config.build_settings['SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD'] = 'NO'
-            end
-          end
-          
-          project.save
-          puts "✅ Saved changes to App.xcodeproj"
-          EOF
-          
-          ruby enable_catalyst.rb
-
-      - name: Switch to CocoaPods (Catalyst Workaround)
-        if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
-        working-directory: app/ios/App
-        run: |
-          echo "🔄 Switching dependency manager to CocoaPods for Catalyst source build..."
-          
-          # 1. Remove SPM References from Project
-          cat <<EOF > remove_spm.rb
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('App.xcodeproj')
-          
-          # Remove package references (Remote)
-          project.root_object.package_references.each(&:remove_from_project)
-          
-          project.targets.each do |target|
-             # Remove package product dependencies
-             target.package_product_dependencies.each(&:remove_from_project)
-             
-             # Remove embedded frameworks from SPM
-             target.frameworks_build_phase.files.select { |f| 
-               f.product_ref.is_a?(Xcodeproj::Project::Object::XCSwiftPackageProductDependency) 
-             }.each(&:remove_from_project)
-          end
-          project.save
-          puts "✅ Removed SPM references from App.xcodeproj"
-          EOF
-          
-          ruby remove_spm.rb
-          
-          # 2. Create Podfile
-          # We point to local plugin paths in node_modules to build from source
-          cat <<EOF > Podfile
-          require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
-
-          platform :ios, '13.0'
-          use_frameworks!
-
-          target 'App' do
-            config = use_capacitor_pods!
-          end
-          
-          post_install do |installer|
-            installer.generated_projects.each do |project|
-              project.targets.each do |target|
-                target.build_configurations.each do |config|
-                  # Ensure Catalyst validation passes
-                  config.build_settings['SUPPORTS_MACCATALYST'] = 'YES'
-                end
-              end
-            end
-          end
-          EOF
-          
-          echo "✅ Created Podfile"
-          
-          # 3. Install Pods
-          pod install --repo-update
-          
-          echo "✅ CocoaPods migration complete. Workspace created."
-
       - name: Build App
         working-directory: app/ios/App
         run: |
