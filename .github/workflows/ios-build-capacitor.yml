@@ -253,17 +253,20 @@ jobs:
           xcode-version: latest-stable
       
       - name: Import Certificate
+        env:
+          CERTIFICATE_BASE64: ${{ steps.apple.outputs.certificate_base64 }}
+          CERTIFICATE_PASSWORD: ${{ steps.apple.outputs.certificate_password }}
         run: |
           CERT_PATH=$RUNNER_TEMP/cert.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
           
-          echo "${{ steps.apple.outputs.certificate_base64 }}" | base64 --decode > $CERT_PATH
+          echo "$CERTIFICATE_BASE64" | base64 --decode > $CERT_PATH
           
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security import $CERT_PATH -P "${{ steps.apple.outputs.certificate_password }}" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
       
       - name: Import Provisioning Profile
