@@ -212,9 +212,6 @@ jobs:
         working-directory: app
         run: ${{ inputs.npm_build_command }}
       
-      - name: Setup CocoaPods
-        run: gem install cocoapods
-      
       - name: Sync Capacitor iOS
         working-directory: app
         run: |
@@ -243,26 +240,12 @@ jobs:
             echo "✅ Web directory '$WEB_DIR' found."
           fi
 
-          # Force CocoaPods instead of SPM
-          # The --packagemanager flag only works with 'cap add', not 'cap sync'
-          # So we remove and re-add the iOS platform to ensure CocoaPods is used
-          
-          if [ -d "ios" ]; then
-            echo "📦 Removing existing iOS folder to force CocoaPods..."
-            rm -rf ios
-          fi
-          
-          echo "➕ Adding iOS platform with CocoaPods..."
-          npx cap add ios --packagemanager CocoaPods
-          
-          echo "🔄 Syncing Capacitor iOS..."
           npx cap sync ios
-          
-          echo "📦 Running pod install..."
-          cd ios/App && pod install
       
-      - name: Setup Fastlane
-        run: gem install fastlane
+      - name: Setup Ruby & Fastlane
+        run: |
+          gem install fastlane
+          gem install cocoapods
       
       - name: Setup xcodeproj gem
         run: gem install xcodeproj
