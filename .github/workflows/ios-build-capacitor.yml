@@ -251,6 +251,34 @@ jobs:
 
           npx cap sync ios
       
+      - name: Patch RevenueCat for Mac Catalyst
+        if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
+        working-directory: app
+        run: |
+          echo "🔧 Patching RevenueCat plugin for Mac Catalyst compatibility..."
+          
+          # Find the PurchasesPlugin.swift file
+          PLUGIN_FILE="node_modules/@revenuecat/purchases-capacitor/ios/Sources/RevenuecatPurchasesCapacitor/PurchasesPlugin.swift"
+          
+          if [ ! -f "$PLUGIN_FILE" ]; then
+            echo "⚠️ RevenueCat plugin file not found, skipping patch"
+            exit 0
+          fi
+          
+          # Check if already patched
+          if grep -q "#if !targetEnvironment(macCatalyst)" "$PLUGIN_FILE"; then
+            echo "✅ File already patched"
+            exit 0
+          fi
+          
+          # Patch: Wrap presentCodeRedemptionSheet() call with Mac Catalyst check
+          # The error is at line 566: CommonFunctionality.presentCodeRedemptionSheet()
+          sed -i.bak 's/CommonFunctionality\.presentCodeRedemptionSheet()/#if !targetEnvironment(macCatalyst)\n            CommonFunctionality.presentCodeRedemptionSheet()\n            #else\n            \/\/ presentCodeRedemptionSheet is not available on Mac Catalyst\n            call.reject("Code redemption sheet is not available on Mac Catalyst")\n            return\n            #endif/g' "$PLUGIN_FILE"
+          
+          echo "✅ Patched RevenueCat plugin for Mac Catalyst"
+          echo "📄 Showing patched section:"
+          grep -A5 -B2 "targetEnvironment" "$PLUGIN_FILE" || true
+      
       - name: Setup Ruby & Fastlane
         run: |
           gem install fastlane
