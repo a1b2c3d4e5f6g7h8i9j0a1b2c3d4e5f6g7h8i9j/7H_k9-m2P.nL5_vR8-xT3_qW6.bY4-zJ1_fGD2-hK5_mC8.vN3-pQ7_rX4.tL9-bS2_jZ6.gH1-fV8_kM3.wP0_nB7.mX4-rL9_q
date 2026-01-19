@@ -292,6 +292,38 @@ jobs:
           
           ruby enable_catalyst.rb
       
+      - name: Configure Podfile for Mac Catalyst
+        if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
+        working-directory: app/ios/App
+        run: |
+          echo "🔧 Configuring Podfile for Mac Catalyst support..."
+          
+          if [ ! -f "Podfile" ]; then
+            echo "⚠️ No Podfile found, skipping Catalyst configuration"
+            exit 0
+          fi
+          
+          if grep -q "SUPPORTS_MACCATALYST" Podfile; then
+            echo "✅ Podfile already has Mac Catalyst configuration"
+          else
+            echo "" >> Podfile
+            echo "# Mac Catalyst Support for all pods" >> Podfile
+            echo "post_install do |installer|" >> Podfile
+            echo "  installer.pods_project.targets.each do |target|" >> Podfile
+            echo "    target.build_configurations.each do |config|" >> Podfile
+            echo "      config.build_settings['SUPPORTS_MACCATALYST'] = 'YES'" >> Podfile
+            echo "      config.build_settings['DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER'] = 'YES'" >> Podfile
+            echo "      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'" >> Podfile
+            echo "    end" >> Podfile
+            echo "  end" >> Podfile
+            echo "end" >> Podfile
+            echo "✅ Added Mac Catalyst configuration to Podfile"
+          fi
+          
+          echo "🔄 Running pod install..."
+          pod install
+          echo "✅ CocoaPods updated with Mac Catalyst support"
+      
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
