@@ -466,15 +466,8 @@ jobs:
             EXPORT_FORMAT="ipa"
           fi
           
-          # Code signing settings based on target_type AND build_mode
-          # App Store builds ALWAYS require code signing, regardless of target_type
-          if [ "${{ inputs.build_mode }}" == "publish_to_appstore" ]; then
-            # App Store submission requires full code signing
-            CODE_SIGN_IDENTITY="Apple Distribution"
-            CODE_SIGNING_REQUIRED="YES"
-            CODE_SIGNING_ALLOWED="YES"
-            echo "🚀 Building for APP STORE (code signing enabled, overrides target_type)"
-          elif [ "$TARGET_TYPE" == "simulator" ]; then
+          # Code signing settings based on target_type
+          if [ "$TARGET_TYPE" == "simulator" ]; then
             CODE_SIGN_IDENTITY="-"
             CODE_SIGNING_REQUIRED="NO"
             CODE_SIGNING_ALLOWED="NO"
@@ -486,6 +479,9 @@ jobs:
             echo "📱 Building for REAL DEVICE (code signing enabled)"
           fi
           
+          # Store Team ID for code signing (needed for real device builds)
+          TEAM_ID="${{ steps.apple.outputs.team_id }}"
+          
           echo "DESTINATION=$DESTINATION" >> $GITHUB_ENV
           echo "TARGET_DEVICES=$DEVICES" >> $GITHUB_ENV
           echo "IS_CATALYST=$IS_CATALYST" >> $GITHUB_ENV
@@ -494,6 +490,7 @@ jobs:
           echo "CODE_SIGN_IDENTITY=$CODE_SIGN_IDENTITY" >> $GITHUB_ENV
           echo "CODE_SIGNING_REQUIRED=$CODE_SIGNING_REQUIRED" >> $GITHUB_ENV
           echo "CODE_SIGNING_ALLOWED=$CODE_SIGNING_ALLOWED" >> $GITHUB_ENV
+          echo "TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
           echo "Building for: ${{ inputs.target_platform }} ($TARGET_TYPE) - format: $EXPORT_FORMAT"
           
           # Store app name for file naming (no spaces for filenames)
@@ -566,6 +563,7 @@ jobs:
                   -configuration Release \
                   -destination "generic/platform=iOS" \
                   -derivedDataPath build-ios \
+                  DEVELOPMENT_TEAM="$TEAM_ID" \
                   CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
                   CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" \
                   CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED"
@@ -581,6 +579,7 @@ jobs:
                   -destination "generic/platform=macOS,variant=Mac Catalyst" \
                   -derivedDataPath build-macos \
                   SUPPORTS_MACCATALYST=YES \
+                  DEVELOPMENT_TEAM="$TEAM_ID" \
                   CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
                   CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" \
                   CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED"
@@ -600,6 +599,7 @@ jobs:
                 -destination "$DESTINATION" \
                 -derivedDataPath build \
                 SUPPORTS_MACCATALYST=YES \
+                DEVELOPMENT_TEAM="$TEAM_ID" \
                 CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
                 CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" \
                 CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED"
@@ -615,6 +615,7 @@ jobs:
                 -configuration Release \
                 -destination "$DESTINATION" \
                 -derivedDataPath build \
+                DEVELOPMENT_TEAM="$TEAM_ID" \
                 CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
                 CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" \
                 CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED"
@@ -638,6 +639,7 @@ jobs:
                 output_directory:"." \
                 output_name:"${APP_NAME_SAFE}.ipa" \
                 export_team_id:"$TEAM_ID" \
+                xcargs:"DEVELOPMENT_TEAM=$TEAM_ID" \
                 clean:true
             else
               # iOS for App Store
@@ -648,6 +650,7 @@ jobs:
                 output_directory:"." \
                 output_name:"${APP_NAME_SAFE}.ipa" \
                 export_team_id:"$TEAM_ID" \
+                xcargs:"DEVELOPMENT_TEAM=$TEAM_ID" \
                 clean:true
             fi
           fi
