@@ -689,15 +689,22 @@ jobs:
         if: inputs.build_mode == 'publish_to_appstore'
         working-directory: app/ios/App
         run: |
-          # Save API key
-          API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8
-          echo "${{ steps.apple.outputs.api_key_base64 }}" | base64 --decode > $API_KEY_PATH
+          # Generate API Key JSON file (required for upload_to_app_store)
+          API_KEY_JSON_PATH="api_key.json"
+          API_KEY_CONTENT=$(echo "${{ steps.apple.outputs.api_key_base64 }}" | base64 --decode)
           
-          # Upload
+          # Use jq to construct the JSON file safely (handles newline escaping automatically)
+          jq -n \
+            --arg key_id "${{ steps.apple.outputs.api_key_id }}" \
+            --arg issuer_id "${{ steps.apple.outputs.api_issuer_id }}" \
+            --arg key "$API_KEY_CONTENT" \
+            '{key_id: $key_id, issuer_id: $issuer_id, key: $key}' > "$API_KEY_JSON_PATH"
+          
+          echo "✅ Generated api_key.json"
+          
+          # Upload using the JSON key file
           fastlane run upload_to_app_store \
-            api_key_path:"$API_KEY_PATH" \
-            api_key_id:"${{ steps.apple.outputs.api_key_id }}" \
-            api_key_issuer_id:"${{ steps.apple.outputs.api_issuer_id }}" \
+            api_key_path:"$API_KEY_JSON_PATH" \
             ipa:"${APP_NAME_SAFE}.ipa" \
             skip_metadata:true \
             skip_screenshots:true \
