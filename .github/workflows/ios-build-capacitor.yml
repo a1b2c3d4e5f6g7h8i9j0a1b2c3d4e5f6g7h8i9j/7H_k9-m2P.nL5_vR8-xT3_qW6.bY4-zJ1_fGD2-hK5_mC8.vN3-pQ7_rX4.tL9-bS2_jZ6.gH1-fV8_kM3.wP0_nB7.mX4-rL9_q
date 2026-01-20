@@ -503,11 +503,11 @@ jobs:
           if [ -d "App.xcworkspace" ]; then
             echo "✅ Found App.xcworkspace. Using Workspace build."
             XC_ARG="-workspace App.xcworkspace"
-            FL_ARG="workspace:\"App.xcworkspace\""
+            FL_ARG="workspace:App.xcworkspace"
           elif [ -d "App.xcodeproj" ]; then
             echo "ℹ️ App.xcworkspace not found. Using App.xcodeproj build."
             XC_ARG="-project App.xcodeproj"
-            FL_ARG="project:\"App.xcodeproj\""
+            FL_ARG="project:App.xcodeproj"
           else
             echo "❌ Error: Neither App.xcworkspace nor App.xcodeproj found in $(pwd)"
             ls -la
