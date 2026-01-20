@@ -630,7 +630,7 @@ jobs:
                 export_method:"app-store" \
                 output_directory:"." \
                 output_name:"${APP_NAME_SAFE}.ipa" \
-                team_id:"$TEAM_ID" \
+                export_team_id:"$TEAM_ID" \
                 clean:true
             else
               # iOS for App Store
@@ -640,7 +640,7 @@ jobs:
                 export_method:"app-store" \
                 output_directory:"." \
                 output_name:"${APP_NAME_SAFE}.ipa" \
-                team_id:"$TEAM_ID" \
+                export_team_id:"$TEAM_ID" \
                 clean:true
             fi
           fi
