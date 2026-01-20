@@ -105,6 +105,8 @@ jobs:
           echo "team_id=$(echo "$APPLE_CREDS" | jq -r '.team_id')" >> $GITHUB_OUTPUT
           echo "certificate_base64=$(echo "$APPLE_CREDS" | jq -r '.certificate_base64')" >> $GITHUB_OUTPUT
           echo "certificate_password=$(echo "$APPLE_CREDS" | jq -r '.certificate_password')" >> $GITHUB_OUTPUT
+          echo "installer_certificate_base64=$(echo "$APPLE_CREDS" | jq -r '.installer_certificate_base64 // empty')" >> $GITHUB_OUTPUT
+          echo "installer_certificate_password=$(echo "$APPLE_CREDS" | jq -r '.installer_certificate_password // .certificate_password')" >> $GITHUB_OUTPUT
           echo "api_key_id=$(echo "$APPLE_CREDS" | jq -r '.api_key_id')" >> $GITHUB_OUTPUT
           echo "api_issuer_id=$(echo "$APPLE_CREDS" | jq -r '.api_issuer_id')" >> $GITHUB_OUTPUT
           echo "api_key_base64=$(echo "$APPLE_CREDS" | jq -r '.api_key_base64')" >> $GITHUB_OUTPUT
@@ -375,8 +377,11 @@ jobs:
         env:
           CERTIFICATE_BASE64: ${{ steps.apple.outputs.certificate_base64 }}
           CERTIFICATE_PASSWORD: ${{ steps.apple.outputs.certificate_password }}
+          INSTALLER_CERT_BASE64: ${{ steps.apple.outputs.installer_certificate_base64 }}
+          INSTALLER_CERT_PASSWORD: ${{ steps.apple.outputs.installer_certificate_password }}
         run: |
           CERT_PATH=$RUNNER_TEMP/cert.p12
+          INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_cert.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
           
@@ -386,6 +391,13 @@ jobs:
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security import $CERT_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          
+          if [ -n "$INSTALLER_CERT_BASE64" ]; then
+            echo "📥 Importing Mac Installer Certificate..."
+            echo "$INSTALLER_CERT_BASE64" | base64 --decode > $INSTALLER_CERT_PATH
+            security import $INSTALLER_CERT_PATH -P "$INSTALLER_CERT_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          fi
+          
           security list-keychain -d user -s $KEYCHAIN_PATH
       
       - name: Import Provisioning Profile
