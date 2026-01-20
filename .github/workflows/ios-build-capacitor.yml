@@ -33,7 +33,7 @@ on:
         default: '1.0.0'
       
       build_number:
-        description: 'Build number (leave empty for auto)'
+        description: 'Build number (Required)'
         required: false
         type: string
       
@@ -705,29 +705,33 @@ jobs:
             # Code signing settings for App Store (applies to ALL targets including Pods)
             XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES"
             
-            if [ "$IS_CATALYST" == "true" ]; then
-              # Mac Catalyst for App Store
+            # 1. BUILD IOS (If target is NOT macos_only)
+            if [ "${{ inputs.target_platform }}" != "macos_only" ]; then
+              echo "📱 Building iOS App for App Store..."
+              fastlane run build_app \
+                $FL_ARG \
+                scheme:"App" \
+                export_method:"app-store" \
+                output_directory:"." \
+                output_name:"${APP_NAME_SAFE}-iOS.ipa" \
+                export_team_id:"$TEAM_ID" \
+                xcargs:"$XCARGS" \
+                clean:true
+            fi
+
+            # 2. BUILD MAC CATALYST (If target is macos_only OR all_devices)
+            if [ "${{ inputs.target_platform }}" == "macos_only" ] || [ "${{ inputs.target_platform }}" == "all_devices" ]; then
+              echo "💻 Building Mac Catalyst App for App Store..."
               fastlane run build_app \
                 $FL_ARG \
                 scheme:"App" \
                 catalyst_platform:"macos" \
                 export_method:"app-store" \
                 output_directory:"." \
-                output_name:"${APP_NAME_SAFE}.ipa" \
+                output_name:"${APP_NAME_SAFE}-Mac.ipa" \
                 export_team_id:"$TEAM_ID" \
                 xcargs:"$XCARGS" \
-                clean:true
-            else
-              # iOS for App Store
-              fastlane run build_app \
-                $FL_ARG \
-                scheme:"App" \
-                export_method:"app-store" \
-                output_directory:"." \
-                output_name:"${APP_NAME_SAFE}.ipa" \
-                export_team_id:"$TEAM_ID" \
-                xcargs:"$XCARGS" \
-                clean:true
+                clean:true # Clean again to ensure fresh build
             fi
           fi
       
@@ -748,39 +752,55 @@ jobs:
           
           echo "✅ Generated api_key.json"
           
-          # Detect the file to upload (.ipa or .pkg)
-          if [ -f "${APP_NAME_SAFE}.ipa" ]; then
-            echo "📦 Found IPA file: ${APP_NAME_SAFE}.ipa"
-            UPLOAD_FILE="${APP_NAME_SAFE}.ipa"
-            UPLOAD_TYPE="ipa"
-          elif [ -f "${APP_NAME_SAFE}.pkg" ]; then
-            echo "📦 Found PKG file: ${APP_NAME_SAFE}.pkg"
-            UPLOAD_FILE="${APP_NAME_SAFE}.pkg"
-            UPLOAD_TYPE="pkg"
-          else
-            echo "❌ Error: Could not find ${APP_NAME_SAFE}.ipa or ${APP_NAME_SAFE}.pkg"
-            echo "📂 Listing output directory:"
-            ls -la
-            exit 1
+          # Detect files to upload
+          # We check for specific platform files first (iOS vs Mac)
+          
+          # 1. Upload iOS (if exists)
+          if [ -f "${APP_NAME_SAFE}-iOS.ipa" ]; then
+            echo "� Uploading iOS IPA: ${APP_NAME_SAFE}-iOS.ipa"
+            fastlane run upload_to_app_store \
+              api_key_path:"$API_KEY_JSON_PATH" \
+              ipa:"${APP_NAME_SAFE}-iOS.ipa" \
+              platform:"ios" \
+              skip_metadata:true \
+              skip_screenshots:true \
+              run_precheck_before_submit:false \
+              submit_for_review:false
           fi
 
-          echo "🚀 Uploading $UPLOAD_TYPE: $UPLOAD_FILE"
-          
-          # Upload using the JSON key file and dynamic file type
-          if [ "$UPLOAD_TYPE" == "ipa" ]; then
-            fastlane run upload_to_app_store \
-              api_key_path:"$API_KEY_JSON_PATH" \
-              ipa:"$UPLOAD_FILE" \
-              skip_metadata:true \
-              skip_screenshots:true \
-              submit_for_review:false
-          else
-            fastlane run upload_to_app_store \
-              api_key_path:"$API_KEY_JSON_PATH" \
-              pkg:"$UPLOAD_FILE" \
-              skip_metadata:true \
-              skip_screenshots:true \
-              submit_for_review:false
+          # 2. Upload Mac (if exists - checking ipa and pkg)
+          # Note: build_app typically outputs .ipa for catalyst, but we check both just in case
+          MAC_FILE=""
+          if [ -f "${APP_NAME_SAFE}-Mac.ipa" ]; then
+             MAC_FILE="${APP_NAME_SAFE}-Mac.ipa"
+             MAC_TYPE="ipa"
+          elif [ -f "${APP_NAME_SAFE}-Mac.pkg" ]; then
+             MAC_FILE="${APP_NAME_SAFE}-Mac.pkg"
+             MAC_TYPE="pkg"
+          fi
+
+          if [ -n "$MAC_FILE" ]; then
+            echo "� Uploading Mac File: $MAC_FILE"
+            
+            if [ "$MAC_TYPE" == "ipa" ]; then
+               fastlane run upload_to_app_store \
+                api_key_path:"$API_KEY_JSON_PATH" \
+                ipa:"$MAC_FILE" \
+                platform:"osx" \
+                skip_metadata:true \
+                skip_screenshots:true \
+                run_precheck_before_submit:false \
+                submit_for_review:false
+            else
+               fastlane run upload_to_app_store \
+                api_key_path:"$API_KEY_JSON_PATH" \
+                pkg:"$MAC_FILE" \
+                platform:"osx" \
+                skip_metadata:true \
+                skip_screenshots:true \
+                run_precheck_before_submit:false \
+                submit_for_review:false
+            fi
           fi
       
       # Upload artifacts for all_devices SIMULATOR builds
