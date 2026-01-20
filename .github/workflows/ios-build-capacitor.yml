@@ -401,11 +401,19 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
       
       - name: Import Provisioning Profile
+        id: provision
         run: |
           PP_PATH=$RUNNER_TEMP/profile.mobileprovision
           echo "${{ inputs.provisioning_profile_base64 }}" | base64 --decode > $PP_PATH
+          
+          # Extract UUID from the profile
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $PP_PATH))
+          echo "Found Profile UUID: $UUID"
+          
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+          
+          echo "uuid=$UUID" >> $GITHUB_OUTPUT
       
       - name: Update App Info
         working-directory: app/ios/App
@@ -701,9 +709,10 @@ jobs:
           else
             # Build .ipa for App Store submission
             TEAM_ID="${{ steps.apple.outputs.team_id }}"
+            PROFILE_UUID="${{ steps.provision.outputs.uuid }}"
             
             # Code signing settings for App Store (applies to ALL targets including Pods)
-            XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES"
+            XCARGS="DEVELOPMENT_TEAM=$TEAM_ID PROVISIONING_PROFILE=$PROFILE_UUID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES"
             
             # 1. BUILD IOS (If target is NOT macos_only)
             if [ "${{ inputs.target_platform }}" != "macos_only" ]; then
