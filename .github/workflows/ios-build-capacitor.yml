@@ -466,8 +466,15 @@ jobs:
             EXPORT_FORMAT="ipa"
           fi
           
-          # Code signing settings based on target_type
-          if [ "$TARGET_TYPE" == "simulator" ]; then
+          # Code signing settings based on target_type AND build_mode
+          # App Store builds ALWAYS require code signing, regardless of target_type
+          if [ "${{ inputs.build_mode }}" == "publish_to_appstore" ]; then
+            # App Store submission requires full code signing
+            CODE_SIGN_IDENTITY="Apple Distribution"
+            CODE_SIGNING_REQUIRED="YES"
+            CODE_SIGNING_ALLOWED="YES"
+            echo "🚀 Building for APP STORE (code signing enabled, overrides target_type)"
+          elif [ "$TARGET_TYPE" == "simulator" ]; then
             CODE_SIGN_IDENTITY="-"
             CODE_SIGNING_REQUIRED="NO"
             CODE_SIGNING_ALLOWED="NO"
