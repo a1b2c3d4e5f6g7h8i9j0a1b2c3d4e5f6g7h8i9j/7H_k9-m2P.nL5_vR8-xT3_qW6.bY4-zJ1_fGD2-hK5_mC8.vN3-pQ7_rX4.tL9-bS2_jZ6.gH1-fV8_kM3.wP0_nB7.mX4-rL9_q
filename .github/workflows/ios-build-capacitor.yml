@@ -702,13 +702,40 @@ jobs:
           
           echo "✅ Generated api_key.json"
           
-          # Upload using the JSON key file
-          fastlane run upload_to_app_store \
-            api_key_path:"$API_KEY_JSON_PATH" \
-            ipa:"${APP_NAME_SAFE}.ipa" \
-            skip_metadata:true \
-            skip_screenshots:true \
-            submit_for_review:false
+          # Detect the file to upload (.ipa or .pkg)
+          if [ -f "${APP_NAME_SAFE}.ipa" ]; then
+            echo "📦 Found IPA file: ${APP_NAME_SAFE}.ipa"
+            UPLOAD_FILE="${APP_NAME_SAFE}.ipa"
+            UPLOAD_TYPE="ipa"
+          elif [ -f "${APP_NAME_SAFE}.pkg" ]; then
+            echo "📦 Found PKG file: ${APP_NAME_SAFE}.pkg"
+            UPLOAD_FILE="${APP_NAME_SAFE}.pkg"
+            UPLOAD_TYPE="pkg"
+          else
+            echo "❌ Error: Could not find ${APP_NAME_SAFE}.ipa or ${APP_NAME_SAFE}.pkg"
+            echo "📂 Listing output directory:"
+            ls -la
+            exit 1
+          fi
+
+          echo "🚀 Uploading $UPLOAD_TYPE: $UPLOAD_FILE"
+          
+          # Upload using the JSON key file and dynamic file type
+          if [ "$UPLOAD_TYPE" == "ipa" ]; then
+            fastlane run upload_to_app_store \
+              api_key_path:"$API_KEY_JSON_PATH" \
+              ipa:"$UPLOAD_FILE" \
+              skip_metadata:true \
+              skip_screenshots:true \
+              submit_for_review:false
+          else
+            fastlane run upload_to_app_store \
+              api_key_path:"$API_KEY_JSON_PATH" \
+              pkg:"$UPLOAD_FILE" \
+              skip_metadata:true \
+              skip_screenshots:true \
+              submit_for_review:false
+          fi
       
       # Upload artifacts for all_devices SIMULATOR builds
       - name: Upload iOS Simulator Artifact
