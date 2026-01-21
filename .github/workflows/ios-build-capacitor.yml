@@ -799,9 +799,10 @@ jobs:
               echo "📄 Created MacExportOptions.plist with profile UUID: $MAC_PROFILE_UUID"
               cat MacExportOptions.plist
               
-              # IMPORTANT: Override the provisioning profile for Mac Catalyst build
-              # The iOS profile was set in the project, but Mac needs its own profile
-              MAC_XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES PROVISIONING_PROFILE=$MAC_PROFILE_UUID"
+              # IMPORTANT: Do NOT set PROVISIONING_PROFILE in xcargs - it applies to ALL targets including
+              # CocoaPods frameworks which don't support provisioning profiles. The provisioning profile
+              # is correctly specified in MacExportOptions.plist for the export/archive phase.
+              MAC_XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES"
               
               fastlane run build_app \
                 $FL_ARG \
