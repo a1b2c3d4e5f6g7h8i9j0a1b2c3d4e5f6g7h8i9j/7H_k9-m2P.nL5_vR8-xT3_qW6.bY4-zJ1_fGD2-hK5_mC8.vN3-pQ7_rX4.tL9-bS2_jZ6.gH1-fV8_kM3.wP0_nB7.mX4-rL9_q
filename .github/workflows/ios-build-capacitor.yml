@@ -799,10 +799,10 @@ jobs:
               echo "📄 Created MacExportOptions.plist with profile UUID: $MAC_PROFILE_UUID"
               cat MacExportOptions.plist
               
-              # IMPORTANT: Do NOT set PROVISIONING_PROFILE in xcargs - it applies to ALL targets including
-              # CocoaPods frameworks which don't support provisioning profiles. The provisioning profile
-              # is correctly specified in MacExportOptions.plist for the export/archive phase.
-              MAC_XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES"
+              # IMPORTANT: Clear PROVISIONING_PROFILE_SPECIFIER to prevent iOS profile validation error.
+              # The iOS profile is set in the Xcode project, but it's not valid for macOS platform.
+              # The correct Mac profile is specified in MacExportOptions.plist for the export phase.
+              MAC_XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES PROVISIONING_PROFILE_SPECIFIER=''"
               
               fastlane run build_app \
                 $FL_ARG \
