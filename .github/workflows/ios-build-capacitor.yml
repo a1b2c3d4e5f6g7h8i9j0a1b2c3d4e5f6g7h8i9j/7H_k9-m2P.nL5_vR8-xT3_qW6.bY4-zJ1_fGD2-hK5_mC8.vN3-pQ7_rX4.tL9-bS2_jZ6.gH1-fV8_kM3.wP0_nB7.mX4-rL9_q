@@ -83,10 +83,16 @@ on:
         required: true
         type: string
       
-      # Per-App: Provisioning Profile
+      # Per-App: Provisioning Profiles
       provisioning_profile_base64:
-        description: 'Provisioning profile (.mobileprovision base64)'
+        description: 'iOS Provisioning profile (.mobileprovision base64)'
         required: true
+        type: string
+      
+      # Per-App: Mac Catalyst Provisioning Profile (required for macos_only or all_devices)
+      mac_provisioning_profile_base64:
+        description: 'Mac Catalyst Provisioning profile (.provisionprofile base64) - Required for Mac builds'
+        required: false
         type: string
 
 jobs:
@@ -400,7 +406,7 @@ jobs:
           
           security list-keychain -d user -s $KEYCHAIN_PATH
       
-      - name: Import Provisioning Profile
+      - name: Import iOS Provisioning Profile
         id: provision
         run: |
           PP_PATH=$RUNNER_TEMP/profile.mobileprovision
@@ -408,12 +414,28 @@ jobs:
           
           # Extract UUID from the profile
           UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $PP_PATH))
-          echo "Found Profile UUID: $UUID"
+          echo "Found iOS Profile UUID: $UUID"
           
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
           
           echo "uuid=$UUID" >> $GITHUB_OUTPUT
+      
+      - name: Import Mac Catalyst Provisioning Profile
+        id: mac_provision
+        if: (inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only') && inputs.mac_provisioning_profile_base64 != ''
+        run: |
+          MAC_PP_PATH=$RUNNER_TEMP/mac_profile.provisionprofile
+          echo "${{ inputs.mac_provisioning_profile_base64 }}" | base64 --decode > $MAC_PP_PATH
+          
+          # Extract UUID from the Mac profile
+          MAC_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $MAC_PP_PATH))
+          echo "Found Mac Catalyst Profile UUID: $MAC_UUID"
+          
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $MAC_PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$MAC_UUID.provisionprofile
+          
+          echo "uuid=$MAC_UUID" >> $GITHUB_OUTPUT
       
       - name: Update App Info
         working-directory: app/ios/App
@@ -737,16 +759,29 @@ jobs:
             # 2. BUILD MAC CATALYST (If target is macos_only OR all_devices)
             if [ "${{ inputs.target_platform }}" == "macos_only" ] || [ "${{ inputs.target_platform }}" == "all_devices" ]; then
               echo "💻 Building Mac Catalyst App for App Store..."
+              
+              # Check if Mac provisioning profile was provided
+              MAC_PROFILE_UUID="${{ steps.mac_provision.outputs.uuid }}"
+              if [ -z "$MAC_PROFILE_UUID" ]; then
+                echo "❌ Error: Mac Catalyst builds require mac_provisioning_profile_base64 input!"
+                echo "Please create a 'Mac Catalyst App Store' provisioning profile in Apple Developer Portal."
+                exit 1
+              fi
+              
+              # Get installer cert name for pkg signing
+              INSTALLER_CERT_NAME="3rd Party Mac Developer Installer: ${{ steps.apple.outputs.team_id }}"
+              
               fastlane run build_app \
                 $FL_ARG \
                 scheme:"App" \
                 catalyst_platform:"macos" \
                 export_method:"app-store" \
                 output_directory:"." \
-                output_name:"${APP_NAME_SAFE}-Mac.ipa" \
+                output_name:"${APP_NAME_SAFE}-Mac" \
                 export_team_id:"$TEAM_ID" \
                 xcargs:"$XCARGS" \
-                clean:true # Clean again to ensure fresh build
+                installer_cert_name:"$INSTALLER_CERT_NAME" \
+                clean:true
             fi
           fi
       
