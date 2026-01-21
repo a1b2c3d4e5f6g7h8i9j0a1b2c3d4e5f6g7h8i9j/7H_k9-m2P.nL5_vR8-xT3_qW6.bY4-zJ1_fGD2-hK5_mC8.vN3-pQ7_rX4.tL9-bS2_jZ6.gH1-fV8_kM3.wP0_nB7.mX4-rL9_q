@@ -799,13 +799,17 @@ jobs:
               echo "📄 Created MacExportOptions.plist with profile UUID: $MAC_PROFILE_UUID"
               cat MacExportOptions.plist
               
+              # IMPORTANT: Override the provisioning profile for Mac Catalyst build
+              # The iOS profile was set in the project, but Mac needs its own profile
+              MAC_XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES PROVISIONING_PROFILE=$MAC_PROFILE_UUID"
+              
               fastlane run build_app \
                 $FL_ARG \
                 scheme:"App" \
                 catalyst_platform:"macos" \
                 output_directory:"." \
                 output_name:"${APP_NAME_SAFE}-Mac" \
-                xcargs:"$XCARGS" \
+                xcargs:"$MAC_XCARGS" \
                 installer_cert_name:"$INSTALLER_CERT_NAME" \
                 skip_profile_detection:true \
                 export_options:"MacExportOptions.plist" \
