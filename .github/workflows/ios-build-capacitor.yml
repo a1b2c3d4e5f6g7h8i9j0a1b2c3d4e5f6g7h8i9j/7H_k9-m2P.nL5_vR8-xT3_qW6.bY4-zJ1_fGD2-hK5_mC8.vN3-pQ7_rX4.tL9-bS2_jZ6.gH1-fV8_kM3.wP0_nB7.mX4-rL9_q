@@ -768,19 +768,47 @@ jobs:
                 exit 1
               fi
               
+              # Get the bundle ID
+              BUNDLE_ID="${{ steps.capacitor.outputs.bundle_id }}"
+              
               # Get installer cert name for pkg signing
               INSTALLER_CERT_NAME="3rd Party Mac Developer Installer: ${{ steps.apple.outputs.team_id }}"
+              
+              # Create ExportOptions.plist with EXPLICIT Mac provisioning profile
+              # This prevents Fastlane from auto-detecting the iOS profile
+              echo '<?xml version="1.0" encoding="UTF-8"?>' > MacExportOptions.plist
+              echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> MacExportOptions.plist
+              echo '<plist version="1.0">' >> MacExportOptions.plist
+              echo '<dict>' >> MacExportOptions.plist
+              echo '    <key>method</key>' >> MacExportOptions.plist
+              echo '    <string>app-store</string>' >> MacExportOptions.plist
+              echo '    <key>teamID</key>' >> MacExportOptions.plist
+              echo "    <string>$TEAM_ID</string>" >> MacExportOptions.plist
+              echo '    <key>destination</key>' >> MacExportOptions.plist
+              echo '    <string>export</string>' >> MacExportOptions.plist
+              echo '    <key>signingStyle</key>' >> MacExportOptions.plist
+              echo '    <string>manual</string>' >> MacExportOptions.plist
+              echo '    <key>provisioningProfiles</key>' >> MacExportOptions.plist
+              echo '    <dict>' >> MacExportOptions.plist
+              echo "        <key>$BUNDLE_ID</key>" >> MacExportOptions.plist
+              echo "        <string>$MAC_PROFILE_UUID</string>" >> MacExportOptions.plist
+              echo '    </dict>' >> MacExportOptions.plist
+              echo '</dict>' >> MacExportOptions.plist
+              echo '</plist>' >> MacExportOptions.plist
+              
+              echo "📄 Created MacExportOptions.plist with profile UUID: $MAC_PROFILE_UUID"
+              cat MacExportOptions.plist
               
               fastlane run build_app \
                 $FL_ARG \
                 scheme:"App" \
                 catalyst_platform:"macos" \
-                export_method:"app-store" \
                 output_directory:"." \
                 output_name:"${APP_NAME_SAFE}-Mac" \
-                export_team_id:"$TEAM_ID" \
                 xcargs:"$XCARGS" \
                 installer_cert_name:"$INSTALLER_CERT_NAME" \
+                skip_profile_detection:true \
+                export_options:"MacExportOptions.plist" \
                 clean:true
             fi
           fi
