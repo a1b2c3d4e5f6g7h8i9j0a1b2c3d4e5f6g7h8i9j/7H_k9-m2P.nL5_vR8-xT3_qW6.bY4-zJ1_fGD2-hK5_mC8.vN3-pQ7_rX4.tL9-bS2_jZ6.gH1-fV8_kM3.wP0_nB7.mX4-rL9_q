@@ -799,10 +799,11 @@ jobs:
               echo "📄 Created MacExportOptions.plist with profile UUID: $MAC_PROFILE_UUID"
               cat MacExportOptions.plist
               
-              # IMPORTANT: Clear PROVISIONING_PROFILE_SPECIFIER to prevent iOS profile validation error.
-              # The iOS profile is set in the Xcode project, but it's not valid for macOS platform.
+              # IMPORTANT: Clear BOTH PROVISIONING_PROFILE (UUID) and PROVISIONING_PROFILE_SPECIFIER to prevent
+              # iOS profile validation error. The "Disable Automatic Signing" step sets PROVISIONING_PROFILE
+              # to the iOS profile UUID, which is invalid for macOS platform.
               # The correct Mac profile is specified in MacExportOptions.plist for the export phase.
-              MAC_XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES PROVISIONING_PROFILE_SPECIFIER=''"
+              MAC_XCARGS="DEVELOPMENT_TEAM=$TEAM_ID CODE_SIGN_IDENTITY='Apple Distribution' CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES PROVISIONING_PROFILE='' PROVISIONING_PROFILE_SPECIFIER=''"
               
               fastlane run build_app \
                 $FL_ARG \
