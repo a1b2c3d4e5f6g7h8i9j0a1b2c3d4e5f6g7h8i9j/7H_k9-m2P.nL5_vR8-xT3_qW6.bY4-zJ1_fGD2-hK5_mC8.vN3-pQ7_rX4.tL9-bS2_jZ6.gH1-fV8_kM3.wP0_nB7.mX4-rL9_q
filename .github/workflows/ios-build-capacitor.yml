@@ -380,6 +380,7 @@ jobs:
           xcode-version: latest-stable
       
       - name: Import Certificate
+        id: cert
         env:
           CERTIFICATE_BASE64: ${{ steps.apple.outputs.certificate_base64 }}
           CERTIFICATE_PASSWORD: ${{ steps.apple.outputs.certificate_password }}
@@ -398,11 +399,31 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security import $CERT_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           
+          INSTALLER_CERT_NAME=""
           if [ -n "$INSTALLER_CERT_BASE64" ]; then
             echo "📥 Importing Mac Installer Certificate..."
             echo "$INSTALLER_CERT_BASE64" | base64 --decode > $INSTALLER_CERT_PATH
             security import $INSTALLER_CERT_PATH -P "$INSTALLER_CERT_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+            
+            # Auto-detect the actual installer certificate name from the keychain
+            # The certificate name format is: "3rd Party Mac Developer Installer: Company Name (TEAM_ID)"
+            echo "🔍 Detecting installer certificate name..."
+            INSTALLER_CERT_NAME=$(security find-identity -v -p basic $KEYCHAIN_PATH | grep "3rd Party Mac Developer Installer" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            
+            if [ -n "$INSTALLER_CERT_NAME" ]; then
+              echo "✅ Found installer certificate: $INSTALLER_CERT_NAME"
+            else
+              echo "⚠️ Warning: Could not detect installer certificate name, will use default format"
+              INSTALLER_CERT_NAME="3rd Party Mac Developer Installer: ${{ steps.apple.outputs.team_id }}"
+            fi
           fi
+          
+          # Output the detected certificate name
+          echo "installer_cert_name=$INSTALLER_CERT_NAME" >> $GITHUB_OUTPUT
+          
+          # Also list all certificates for debugging
+          echo "📋 Certificates in keychain:"
+          security find-identity -v -p basic $KEYCHAIN_PATH
           
           security list-keychain -d user -s $KEYCHAIN_PATH
       
@@ -771,8 +792,8 @@ jobs:
               # Get the bundle ID
               BUNDLE_ID="${{ steps.capacitor.outputs.bundle_id }}"
               
-              # Get installer cert name for pkg signing
-              INSTALLER_CERT_NAME="3rd Party Mac Developer Installer: ${{ steps.apple.outputs.team_id }}"
+              # Get installer cert name for pkg signing (auto-detected during certificate import)
+              INSTALLER_CERT_NAME="${{ steps.cert.outputs.installer_cert_name }}"
               
               # Create ExportOptions.plist with EXPLICIT Mac provisioning profile
               # This prevents Fastlane from auto-detecting the iOS profile
