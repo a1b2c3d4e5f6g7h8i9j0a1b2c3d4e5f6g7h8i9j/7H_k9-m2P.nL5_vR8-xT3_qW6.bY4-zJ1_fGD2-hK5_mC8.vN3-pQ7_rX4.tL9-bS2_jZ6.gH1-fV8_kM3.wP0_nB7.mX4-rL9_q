@@ -374,6 +374,64 @@ jobs:
           pod install
           echo "✅ CocoaPods updated with Mac Catalyst support"
       
+      - name: Disable Code Signing for Pods (App Store)
+        if: inputs.build_mode == 'publish_to_appstore'
+        working-directory: app/ios/App
+        run: |
+          echo "🔧 Disabling code signing for all Pods targets (App Store build)..."
+          
+          if [ ! -f "Podfile" ]; then
+            echo "⚠️ No Podfile found, skipping"
+            exit 0
+          fi
+          
+          # Check if post_install already exists with code signing settings (from Mac Catalyst step)
+          if grep -q "CODE_SIGNING_ALLOWED.*NO" Podfile; then
+            echo "✅ Code signing already disabled for Pods (from Mac Catalyst configuration)"
+            exit 0
+          fi
+          
+          # Create post_install hook to disable code signing for all Pods
+          # This is required because Pods targets are set to automatic signing,
+          # which conflicts with "Apple Distribution" identity used for App Store builds
+          cat > pods_codesign_fix.rb << 'EOF'
+          # Disable code signing for all Pods targets (App Store CI/CD fix)
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings["CODE_SIGN_IDENTITY"] = ""
+                config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"
+                config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"
+              end
+            end
+          end
+          EOF
+          
+          # Remove leading spaces from the Ruby file (heredoc preserves indentation)
+          sed -i.bak 's/^          //' pods_codesign_fix.rb && rm -f pods_codesign_fix.rb.bak
+          
+          # Check if post_install already exists - if so, we need to merge
+          if grep -q "post_install" Podfile; then
+            echo "📝 Existing post_install found, adding code signing fix inside..."
+            # Insert the code signing settings into the existing post_install block
+            # Use Ruby script to modify the Podfile safely
+            ruby -i -pe 'if /target.build_configurations.each do \|config\|/ then $_ += %(      config.build_settings["CODE_SIGN_IDENTITY"] = ""\n      config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"\n      config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"\n) end' Podfile
+          else
+            # No existing post_install, append our hook
+            echo "" >> Podfile
+            cat pods_codesign_fix.rb >> Podfile
+          fi
+          
+          rm -f pods_codesign_fix.rb
+          
+          echo "✅ Disabled code signing for Pods targets"
+          echo "📄 Podfile post_install section:"
+          grep -A 15 "post_install" Podfile || true
+          
+          echo "🔄 Running pod install to apply changes..."
+          pod install
+          echo "✅ CocoaPods updated with code signing fix"
+      
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
