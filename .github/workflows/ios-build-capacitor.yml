@@ -394,28 +394,26 @@ jobs:
           # Create post_install hook to disable code signing for all Pods
           # This is required because Pods targets are set to automatic signing,
           # which conflicts with "Apple Distribution" identity used for App Store builds
-          cat > pods_codesign_fix.rb << 'EOF'
-          # Disable code signing for all Pods targets (App Store CI/CD fix)
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings["CODE_SIGN_IDENTITY"] = ""
-                config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"
-                config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"
-              end
-            end
-          end
-          EOF
+          echo '# Disable code signing for all Pods targets (App Store CI/CD fix)' > pods_codesign_fix.rb
+          echo 'post_install do |installer|' >> pods_codesign_fix.rb
+          echo '  installer.pods_project.targets.each do |target|' >> pods_codesign_fix.rb  
+          echo '    target.build_configurations.each do |config|' >> pods_codesign_fix.rb
+          echo '      config.build_settings["CODE_SIGN_IDENTITY"] = ""' >> pods_codesign_fix.rb
+          echo '      config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"' >> pods_codesign_fix.rb
+          echo '      config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"' >> pods_codesign_fix.rb
+          echo '    end' >> pods_codesign_fix.rb
+          echo '  end' >> pods_codesign_fix.rb
+          echo 'end' >> pods_codesign_fix.rb
           
-          # Remove leading spaces from the Ruby file (heredoc preserves indentation)
-          sed -i.bak 's/^          //' pods_codesign_fix.rb && rm -f pods_codesign_fix.rb.bak
+          echo "📄 Created pods_codesign_fix.rb:"
+          cat pods_codesign_fix.rb
           
           # Check if post_install already exists - if so, we need to merge
           if grep -q "post_install" Podfile; then
-            echo "📝 Existing post_install found, adding code signing fix inside..."
-            # Insert the code signing settings into the existing post_install block
-            # Use Ruby script to modify the Podfile safely
-            ruby -i -pe 'if /target.build_configurations.each do \|config\|/ then $_ += %(      config.build_settings["CODE_SIGN_IDENTITY"] = ""\n      config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"\n      config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"\n) end' Podfile
+            echo "📝 Existing post_install found, adding code signing settings to existing hook..."
+            # Insert the code signing settings after "target.build_configurations.each do |config|"
+            # Using awk for reliable multiline insertion
+            awk '/target.build_configurations.each do \|config\|/{print; getline; print; print "      config.build_settings[\"CODE_SIGN_IDENTITY\"] = \"\""; print "      config.build_settings[\"CODE_SIGNING_REQUIRED\"] = \"NO\""; print "      config.build_settings[\"CODE_SIGNING_ALLOWED\"] = \"NO\""; next}1' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
           else
             # No existing post_install, append our hook
             echo "" >> Podfile
