@@ -523,13 +523,17 @@ jobs:
             exit 0
           fi
           
-          # Map common locale codes to iOS locale folders
-          declare -A LOCALE_MAP
-          LOCALE_MAP["en-US"]="en"
-          LOCALE_MAP["pt-BR"]="pt-BR"
-          LOCALE_MAP["es-ES"]="es"
-          LOCALE_MAP["fr-FR"]="fr"
-          LOCALE_MAP["de-DE"]="de"
+          # Function to map locale codes to iOS locale folders (Bash 3 compatible)
+          map_locale() {
+            case "$1" in
+              "en-US") echo "en" ;;
+              "pt-BR") echo "pt-BR" ;;
+              "es-ES") echo "es" ;;
+              "fr-FR") echo "fr" ;;
+              "de-DE") echo "de" ;;
+              *) echo "$1" ;;  # Use as-is if no mapping
+            esac
+          }
           
           # Process each locale folder in fastlane/metadata
           for LOCALE_DIR in fastlane/metadata/*/; do
@@ -539,8 +543,8 @@ jobs:
             if [ -f "$NAME_FILE" ]; then
               APP_NAME=$(cat "$NAME_FILE" | tr -d '\n')
               
-              # Get iOS locale folder name (map if needed, otherwise use as-is)
-              IOS_LOCALE="${LOCALE_MAP[$LOCALE]:-$LOCALE}"
+              # Get iOS locale folder name using function
+              IOS_LOCALE=$(map_locale "$LOCALE")
               LPROJ_DIR="ios/App/App/${IOS_LOCALE}.lproj"
               
               echo "  📍 $LOCALE -> $IOS_LOCALE: \"$APP_NAME\""
