@@ -1148,6 +1148,9 @@ jobs:
           puts token
           ")
           
+          # Strip any whitespace/newlines from the JWT token
+          JWT_TOKEN=$(echo "$JWT_TOKEN" | tr -d '[:space:]')
+          
           echo "  ✅ JWT generated successfully"
           
           # ============================================================
@@ -1155,10 +1158,13 @@ jobs:
           # ============================================================
           echo "🔍 Checking if app exists on App Store Connect..."
           
+          # URL-encode the bundle ID filter (brackets need encoding)
+          APPS_URL="https://api.appstoreconnect.apple.com/v1/apps?filter%5BbundleId%5D=${BUNDLE_ID}"
+          
           APPS_RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -H "Authorization: Bearer $JWT_TOKEN" \
+            -H "Authorization: Bearer ${JWT_TOKEN}" \
             -H "Content-Type: application/json" \
-            "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=$BUNDLE_ID")
+            "${APPS_URL}")
           
           HTTP_CODE=$(echo "$APPS_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$APPS_RESPONSE" | sed '$d')
@@ -1181,10 +1187,13 @@ jobs:
             # The app creation needs a bundleId relationship
             echo "  🔍 Looking up Bundle ID resource..."
             
+            # URL-encode the identifier filter (brackets need encoding)
+            BUNDLE_URL="https://api.appstoreconnect.apple.com/v1/bundleIds?filter%5Bidentifier%5D=${BUNDLE_ID}"
+            
             BUNDLE_RESPONSE=$(curl -s -w "\n%{http_code}" \
-              -H "Authorization: Bearer $JWT_TOKEN" \
+              -H "Authorization: Bearer ${JWT_TOKEN}" \
               -H "Content-Type: application/json" \
-              "https://api.appstoreconnect.apple.com/v1/bundleIds?filter[identifier]=$BUNDLE_ID")
+              "${BUNDLE_URL}")
             
             BUNDLE_HTTP_CODE=$(echo "$BUNDLE_RESPONSE" | tail -n1)
             BUNDLE_BODY=$(echo "$BUNDLE_RESPONSE" | sed '$d')
@@ -1235,7 +1244,7 @@ jobs:
             
             CREATE_RESPONSE=$(curl -s -w "\n%{http_code}" \
               -X POST \
-              -H "Authorization: Bearer $JWT_TOKEN" \
+              -H "Authorization: Bearer ${JWT_TOKEN}" \
               -H "Content-Type: application/json" \
               -d "$CREATE_PAYLOAD" \
               "https://api.appstoreconnect.apple.com/v1/apps")
