@@ -1035,53 +1035,57 @@ jobs:
         run: |
           echo "📱 Ensuring app exists on App Store Connect..."
           
-          # Extract the raw API key content (this is the .p8 file content)
+          # API credentials
+          API_KEY_ID="${{ steps.apple.outputs.api_key_id }}"
+          API_ISSUER_ID="${{ steps.apple.outputs.api_issuer_id }}"
           API_KEY_CONTENT=$(echo "${{ steps.apple.outputs.api_key_base64 }}" | base64 --decode)
           
-          # Generate SKU from bundle ID (replace dots with dashes)
+          # App details
           BUNDLE_ID="${{ steps.capacitor.outputs.bundle_id }}"
           SKU=$(echo "$BUNDLE_ID" | tr '.' '-')
           APP_NAME="${{ steps.capacitor.outputs.app_name }}"
           TEAM_ID="${{ steps.apple.outputs.team_id }}"
           
-          # Detect primary language from fastlane/metadata (same logic as localized app names)
-          # Mapping function: Convert locale codes to App Store Connect language names
-          map_locale_to_language() {
+          # Mapping function: Convert fastlane locale codes to App Store Connect API locale codes
+          # API uses specific locale format like "en-US", "pt-BR", etc.
+          map_locale_to_api() {
             case "$1" in
-              "en-US"|"en") echo "English" ;;
-              "pt-BR") echo "Brazilian Portuguese" ;;
-              "pt-PT") echo "Portuguese" ;;
-              "es-ES"|"es-MX"|"es") echo "Spanish" ;;
-              "fr-FR"|"fr-CA"|"fr") echo "French" ;;
-              "de-DE"|"de") echo "German" ;;
-              "it"|"it-IT") echo "Italian" ;;
-              "ja"|"ja-JP") echo "Japanese" ;;
-              "ko"|"ko-KR") echo "Korean" ;;
-              "zh-Hans"|"zh-CN") echo "Simplified Chinese" ;;
-              "zh-Hant"|"zh-TW") echo "Traditional Chinese" ;;
-              "nl-NL"|"nl") echo "Dutch" ;;
-              "ru"|"ru-RU") echo "Russian" ;;
-              "tr"|"tr-TR") echo "Turkish" ;;
-              "ar-SA"|"ar") echo "Arabic" ;;
-              "th"|"th-TH") echo "Thai" ;;
-              "vi"|"vi-VN") echo "Vietnamese" ;;
-              "id"|"id-ID") echo "Indonesian" ;;
-              "ms"|"ms-MY") echo "Malay" ;;
-              "pl"|"pl-PL") echo "Polish" ;;
-              "uk"|"uk-UA") echo "Ukrainian" ;;
-              "cs"|"cs-CZ") echo "Czech" ;;
-              "el"|"el-GR") echo "Greek" ;;
-              "he"|"he-IL") echo "Hebrew" ;;
-              "hi"|"hi-IN") echo "Hindi" ;;
-              "hu"|"hu-HU") echo "Hungarian" ;;
-              "ro"|"ro-RO") echo "Romanian" ;;
-              "sk"|"sk-SK") echo "Slovak" ;;
-              "sv"|"sv-SE") echo "Swedish" ;;
-              "da"|"da-DK") echo "Danish" ;;
-              "fi"|"fi-FI") echo "Finnish" ;;
-              "no"|"no-NO") echo "Norwegian" ;;
-              "ca"|"ca-ES") echo "Catalan" ;;
-              *) echo "English" ;;  # Default fallback
+              "en-US"|"en") echo "en-US" ;;
+              "pt-BR") echo "pt-BR" ;;
+              "pt-PT") echo "pt-PT" ;;
+              "es-ES"|"es") echo "es-ES" ;;
+              "es-MX") echo "es-MX" ;;
+              "fr-FR"|"fr") echo "fr-FR" ;;
+              "fr-CA") echo "fr-CA" ;;
+              "de-DE"|"de") echo "de-DE" ;;
+              "it"|"it-IT") echo "it" ;;
+              "ja"|"ja-JP") echo "ja" ;;
+              "ko"|"ko-KR") echo "ko" ;;
+              "zh-Hans"|"zh-CN") echo "zh-Hans" ;;
+              "zh-Hant"|"zh-TW") echo "zh-Hant" ;;
+              "nl-NL"|"nl") echo "nl-NL" ;;
+              "ru"|"ru-RU") echo "ru" ;;
+              "tr"|"tr-TR") echo "tr" ;;
+              "ar-SA"|"ar") echo "ar-SA" ;;
+              "th"|"th-TH") echo "th" ;;
+              "vi"|"vi-VN") echo "vi" ;;
+              "id"|"id-ID") echo "id" ;;
+              "ms"|"ms-MY") echo "ms" ;;
+              "pl"|"pl-PL") echo "pl" ;;
+              "uk"|"uk-UA") echo "uk" ;;
+              "cs"|"cs-CZ") echo "cs" ;;
+              "el"|"el-GR") echo "el" ;;
+              "he"|"he-IL") echo "he" ;;
+              "hi"|"hi-IN") echo "hi" ;;
+              "hu"|"hu-HU") echo "hu" ;;
+              "ro"|"ro-RO") echo "ro" ;;
+              "sk"|"sk-SK") echo "sk" ;;
+              "sv"|"sv-SE") echo "sv" ;;
+              "da"|"da-DK") echo "da" ;;
+              "fi"|"fi-FI") echo "fi" ;;
+              "no"|"no-NO") echo "no" ;;
+              "ca"|"ca-ES") echo "ca" ;;
+              *) echo "en-US" ;;  # Default fallback
             esac
           }
           
@@ -1090,7 +1094,6 @@ jobs:
             PRIMARY_LOCALE=$(cat "fastlane/metadata/primary_locale.txt" | tr -d '\n')
             echo "  📍 Primary locale from config: $PRIMARY_LOCALE"
           elif [ -d "fastlane/metadata" ]; then
-            # Use first available locale folder
             PRIMARY_LOCALE=$(ls -1 fastlane/metadata/ 2>/dev/null | head -1)
             echo "  📍 Primary locale (first folder): $PRIMARY_LOCALE"
           else
@@ -1098,39 +1101,143 @@ jobs:
             echo "  📍 No fastlane/metadata found, defaulting to: $PRIMARY_LOCALE"
           fi
           
-          # Convert locale to App Store Connect language name
-          LANGUAGE=$(map_locale_to_language "$PRIMARY_LOCALE")
+          # Convert locale to App Store Connect API format
+          API_LOCALE=$(map_locale_to_api "$PRIMARY_LOCALE")
           
           echo "   Bundle ID: $BUNDLE_ID"
           echo "   App Name: $APP_NAME"
           echo "   SKU: $SKU"
-          echo "   Language: $LANGUAGE (from $PRIMARY_LOCALE)"
+          echo "   Primary Locale: $API_LOCALE (from $PRIMARY_LOCALE)"
           
-          # Run produce - creates app if doesn't exist, skips if it does
-          # NOTE: produce doesn't support api_key_path directly, so we use
-          # app_store_connect_api_key first to set up the API key in the environment
-          # skip_devcenter:true because App ID should already exist on Developer Portal
+          # ============================================================
+          # Generate JWT for App Store Connect API
+          # ============================================================
+          echo "🔑 Generating JWT for App Store Connect API..."
           
-          # First, set up the API key using app_store_connect_api_key action
-          # This makes the API key available to subsequent actions like produce
-          # Use key_content instead of key_filepath since we have the raw key content
-          fastlane run app_store_connect_api_key \
-            key_id:"${{ steps.apple.outputs.api_key_id }}" \
-            issuer_id:"${{ steps.apple.outputs.api_issuer_id }}" \
-            key_content:"$API_KEY_CONTENT" \
-            in_house:false
+          # Save API key to file for openssl
+          P8_KEY_PATH="$RUNNER_TEMP/AuthKey_${API_KEY_ID}.p8"
+          echo "$API_KEY_CONTENT" > "$P8_KEY_PATH"
           
-          # Now run produce - it will automatically pick up the API key from environment
-          fastlane run produce \
-            app_identifier:"$BUNDLE_ID" \
-            app_name:"$APP_NAME" \
-            sku:"$SKU" \
-            team_id:"$TEAM_ID" \
-            language:"$LANGUAGE" \
-            skip_devcenter:true || {
-              echo "⚠️ produce returned non-zero, but continuing..."
-              echo "   (App may already exist or there was a non-critical warning)"
+          # JWT Header (ES256 algorithm)
+          JWT_HEADER=$(echo -n '{"alg":"ES256","kid":"'"$API_KEY_ID"'","typ":"JWT"}' | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          
+          # JWT Claims (expires in 10 minutes)
+          CURRENT_TIME=$(date +%s)
+          EXPIRY_TIME=$((CURRENT_TIME + 600))
+          JWT_CLAIMS=$(echo -n '{"iss":"'"$API_ISSUER_ID"'","iat":'"$CURRENT_TIME"',"exp":'"$EXPIRY_TIME"',"aud":"appstoreconnect-v1"}' | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          
+          # Create signature
+          JWT_UNSIGNED="${JWT_HEADER}.${JWT_CLAIMS}"
+          JWT_SIGNATURE=$(echo -n "$JWT_UNSIGNED" | openssl dgst -sha256 -sign "$P8_KEY_PATH" | openssl base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          
+          # Complete JWT
+          JWT_TOKEN="${JWT_UNSIGNED}.${JWT_SIGNATURE}"
+          echo "  ✅ JWT generated successfully"
+          
+          # ============================================================
+          # Check if app already exists using App Store Connect API
+          # ============================================================
+          echo "🔍 Checking if app exists on App Store Connect..."
+          
+          APPS_RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $JWT_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=$BUNDLE_ID")
+          
+          HTTP_CODE=$(echo "$APPS_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$APPS_RESPONSE" | sed '$d')
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Error checking apps: HTTP $HTTP_CODE"
+            echo "$RESPONSE_BODY"
+            exit 1
+          fi
+          
+          APP_COUNT=$(echo "$RESPONSE_BODY" | jq '.data | length')
+          
+          if [ "$APP_COUNT" -gt 0 ]; then
+            APP_ID=$(echo "$RESPONSE_BODY" | jq -r '.data[0].id')
+            echo "  ✅ App already exists! App ID: $APP_ID"
+          else
+            echo "  📝 App not found, creating new app on App Store Connect..."
+            
+            # First, we need to get the Bundle ID resource from Developer Portal
+            # The app creation needs a bundleId relationship
+            echo "  🔍 Looking up Bundle ID resource..."
+            
+            BUNDLE_RESPONSE=$(curl -s -w "\n%{http_code}" \
+              -H "Authorization: Bearer $JWT_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.appstoreconnect.apple.com/v1/bundleIds?filter[identifier]=$BUNDLE_ID")
+            
+            BUNDLE_HTTP_CODE=$(echo "$BUNDLE_RESPONSE" | tail -n1)
+            BUNDLE_BODY=$(echo "$BUNDLE_RESPONSE" | sed '$d')
+            
+            if [ "$BUNDLE_HTTP_CODE" != "200" ]; then
+              echo "❌ Error looking up Bundle ID: HTTP $BUNDLE_HTTP_CODE"
+              echo "$BUNDLE_BODY"
+              exit 1
+            fi
+            
+            BUNDLE_COUNT=$(echo "$BUNDLE_BODY" | jq '.data | length')
+            
+            if [ "$BUNDLE_COUNT" -eq 0 ]; then
+              echo "❌ Bundle ID '$BUNDLE_ID' not registered in Apple Developer Portal!"
+              echo "   Please register the App ID in the Developer Portal first:"
+              echo "   https://developer.apple.com/account/resources/identifiers/list"
+              exit 1
+            fi
+            
+            BUNDLE_ID_RESOURCE=$(echo "$BUNDLE_BODY" | jq -r '.data[0].id')
+            echo "  ✅ Found Bundle ID resource: $BUNDLE_ID_RESOURCE"
+            
+            # Create the app on App Store Connect
+            echo "  🚀 Creating app on App Store Connect..."
+            
+            CREATE_PAYLOAD=$(cat <<EOF
+          {
+            "data": {
+              "type": "apps",
+              "attributes": {
+                "name": "$APP_NAME",
+                "bundleId": "$BUNDLE_ID",
+                "sku": "$SKU",
+                "primaryLocale": "$API_LOCALE"
+              },
+              "relationships": {
+                "bundleId": {
+                  "data": {
+                    "type": "bundleIds",
+                    "id": "$BUNDLE_ID_RESOURCE"
+                  }
+                }
+              }
             }
+          }
+          EOF
+          )
+            
+            CREATE_RESPONSE=$(curl -s -w "\n%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $JWT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$CREATE_PAYLOAD" \
+              "https://api.appstoreconnect.apple.com/v1/apps")
+            
+            CREATE_HTTP_CODE=$(echo "$CREATE_RESPONSE" | tail -n1)
+            CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed '$d')
+            
+            if [ "$CREATE_HTTP_CODE" = "201" ]; then
+              NEW_APP_ID=$(echo "$CREATE_BODY" | jq -r '.data.id')
+              echo "  ✅ App created successfully! App ID: $NEW_APP_ID"
+            elif [ "$CREATE_HTTP_CODE" = "409" ]; then
+              echo "  ⚠️ App already exists (conflict response)"
+            else
+              echo "❌ Error creating app: HTTP $CREATE_HTTP_CODE"
+              echo "$CREATE_BODY" | jq '.' 2>/dev/null || echo "$CREATE_BODY"
+              exit 1
+            fi
+          fi
           
           echo "✅ App Store Connect check complete"
       
@@ -1147,21 +1254,32 @@ jobs:
           
           echo "📦 Setting up App Store Connect API key..."
           
-          # IMPORTANT: Call app_store_connect_api_key FIRST to initialize the API context
-          # This prevents the 'undefined method team_id for nil' error in deliver
-          # Using key_content instead of key_filepath since we have the raw .p8 content
-          fastlane run app_store_connect_api_key \
-            key_id:"${{ steps.apple.outputs.api_key_id }}" \
-            issuer_id:"${{ steps.apple.outputs.api_issuer_id }}" \
-            key_content:"$API_KEY_CONTENT" \
-            in_house:false
+          # Create api_key.json file for upload_to_app_store
+          # The upload_to_app_store action requires either api_key_path or username
+          # API key JSON format is the standard way to authenticate with App Store Connect API
+          API_KEY_PATH="$RUNNER_TEMP/api_key.json"
           
-          echo "✅ API key initialized"
+          # Write the .p8 key content to a file first
+          P8_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          echo "$API_KEY_CONTENT" > "$P8_KEY_PATH"
+          
+          # Create the JSON file with key_filepath pointing to the .p8 file
+          cat > "$API_KEY_PATH" << EOF
+          {
+            "key_id": "${{ steps.apple.outputs.api_key_id }}",
+            "issuer_id": "${{ steps.apple.outputs.api_issuer_id }}",
+            "key_filepath": "$P8_KEY_PATH",
+            "in_house": false
+          }
+          EOF
+          
+          echo "✅ API key JSON created at: $API_KEY_PATH"
           
           # 1. Upload iOS (if exists)
           if [ -f "${APP_NAME_SAFE}-iOS.ipa" ]; then
             echo "📱 Uploading iOS IPA: ${APP_NAME_SAFE}-iOS.ipa"
             fastlane run upload_to_app_store \
+              api_key_path:"$API_KEY_PATH" \
               app_identifier:"$BUNDLE_ID" \
               team_id:"$TEAM_ID" \
               ipa:"${APP_NAME_SAFE}-iOS.ipa" \
@@ -1189,6 +1307,7 @@ jobs:
             
             if [ "$MAC_TYPE" == "ipa" ]; then
                fastlane run upload_to_app_store \
+                api_key_path:"$API_KEY_PATH" \
                 app_identifier:"$BUNDLE_ID" \
                 team_id:"$TEAM_ID" \
                 ipa:"$MAC_FILE" \
@@ -1201,6 +1320,7 @@ jobs:
                 submit_for_review:false
             else
                fastlane run upload_to_app_store \
+                api_key_path:"$API_KEY_PATH" \
                 app_identifier:"$BUNDLE_ID" \
                 team_id:"$TEAM_ID" \
                 pkg:"$MAC_FILE" \
