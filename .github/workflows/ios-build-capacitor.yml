@@ -1035,15 +1035,8 @@ jobs:
         run: |
           echo "📱 Ensuring app exists on App Store Connect..."
           
-          # Generate API Key JSON file
-          API_KEY_JSON_PATH="api_key.json"
+          # Extract the raw API key content (this is the .p8 file content)
           API_KEY_CONTENT=$(echo "${{ steps.apple.outputs.api_key_base64 }}" | base64 --decode)
-          
-          jq -n \
-            --arg key_id "${{ steps.apple.outputs.api_key_id }}" \
-            --arg issuer_id "${{ steps.apple.outputs.api_issuer_id }}" \
-            --arg key "$API_KEY_CONTENT" \
-            '{key_id: $key_id, issuer_id: $issuer_id, key: $key}' > "$API_KEY_JSON_PATH"
           
           # Generate SKU from bundle ID (replace dots with dashes)
           BUNDLE_ID="${{ steps.capacitor.outputs.bundle_id }}"
@@ -1114,9 +1107,21 @@ jobs:
           echo "   Language: $LANGUAGE (from $PRIMARY_LOCALE)"
           
           # Run produce - creates app if doesn't exist, skips if it does
+          # NOTE: produce doesn't support api_key_path directly, so we use
+          # app_store_connect_api_key first to set up the API key in the environment
           # skip_devcenter:true because App ID should already exist on Developer Portal
+          
+          # First, set up the API key using app_store_connect_api_key action
+          # This makes the API key available to subsequent actions like produce
+          # Use key_content instead of key_filepath since we have the raw key content
+          fastlane run app_store_connect_api_key \
+            key_id:"${{ steps.apple.outputs.api_key_id }}" \
+            issuer_id:"${{ steps.apple.outputs.api_issuer_id }}" \
+            key_content:"$API_KEY_CONTENT" \
+            in_house:false
+          
+          # Now run produce - it will automatically pick up the API key from environment
           fastlane run produce \
-            api_key_path:"$API_KEY_JSON_PATH" \
             app_identifier:"$BUNDLE_ID" \
             app_name:"$APP_NAME" \
             sku:"$SKU" \
@@ -1126,9 +1131,6 @@ jobs:
               echo "⚠️ produce returned non-zero, but continuing..."
               echo "   (App may already exist or there was a non-critical warning)"
             }
-          
-          # Cleanup
-          rm -f "$API_KEY_JSON_PATH"
           
           echo "✅ App Store Connect check complete"
       
@@ -1152,11 +1154,17 @@ jobs:
           # Detect files to upload
           # We check for specific platform files first (iOS vs Mac)
           
+          # Required for upload_to_app_store with API key auth
+          BUNDLE_ID="${{ steps.capacitor.outputs.bundle_id }}"
+          TEAM_ID="${{ steps.apple.outputs.team_id }}"
+          
           # 1. Upload iOS (if exists)
           if [ -f "${APP_NAME_SAFE}-iOS.ipa" ]; then
-            echo "� Uploading iOS IPA: ${APP_NAME_SAFE}-iOS.ipa"
+            echo "📱 Uploading iOS IPA: ${APP_NAME_SAFE}-iOS.ipa"
             fastlane run upload_to_app_store \
               api_key_path:"$API_KEY_JSON_PATH" \
+              app_identifier:"$BUNDLE_ID" \
+              team_id:"$TEAM_ID" \
               ipa:"${APP_NAME_SAFE}-iOS.ipa" \
               platform:"ios" \
               skip_metadata:false \
@@ -1179,11 +1187,13 @@ jobs:
           fi
 
           if [ -n "$MAC_FILE" ]; then
-            echo "� Uploading Mac File: $MAC_FILE"
+            echo "💻 Uploading Mac File: $MAC_FILE"
             
             if [ "$MAC_TYPE" == "ipa" ]; then
                fastlane run upload_to_app_store \
                 api_key_path:"$API_KEY_JSON_PATH" \
+                app_identifier:"$BUNDLE_ID" \
+                team_id:"$TEAM_ID" \
                 ipa:"$MAC_FILE" \
                 platform:"osx" \
                 skip_metadata:false \
@@ -1195,6 +1205,8 @@ jobs:
             else
                fastlane run upload_to_app_store \
                 api_key_path:"$API_KEY_JSON_PATH" \
+                app_identifier:"$BUNDLE_ID" \
+                team_id:"$TEAM_ID" \
                 pkg:"$MAC_FILE" \
                 platform:"osx" \
                 skip_metadata:false \
