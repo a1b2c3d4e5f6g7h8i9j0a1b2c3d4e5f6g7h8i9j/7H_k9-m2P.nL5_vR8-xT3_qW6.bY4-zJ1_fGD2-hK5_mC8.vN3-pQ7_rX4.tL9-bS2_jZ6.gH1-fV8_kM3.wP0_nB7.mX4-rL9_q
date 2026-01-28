@@ -187,6 +187,7 @@ jobs:
             if [ -z "$CAP_VER" ]; then
               echo "⚠️ Could not find @capacitor/core in package.json. Defaulting to Node 20."
               NODE_VER="20"
+              MAJOR_VER="8"
             else
               echo "Found @capacitor/core: $CAP_VER"
               # Extract major version number (remove ^, ~, etc)
@@ -201,18 +202,22 @@ jobs:
               elif [ "$MAJOR_VER" -le 5 ]; then
                 echo "⚡ Capacitor 5 or older detected. Using Node 18."
                 NODE_VER="18"
+                MAJOR_VER="5"
               else
                 # Fallback
                 echo "⚠️ Unknown version version. Defaulting to Node 20."
                 NODE_VER="20"
+                MAJOR_VER="8"
               fi
             fi
           else
             echo "⚠️ No package.json found. Defaulting to Node 20."
             NODE_VER="20"
+            MAJOR_VER="8"
           fi
           
           echo "version=$NODE_VER" >> $GITHUB_OUTPUT
+          echo "capacitor_major=$MAJOR_VER" >> $GITHUB_OUTPUT
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -294,6 +299,66 @@ jobs:
       
       - name: Setup xcodeproj gem
         run: gem install xcodeproj
+      
+      - name: Update iOS Deployment Target (Based on Capacitor Version)
+        working-directory: app/ios/App
+        env:
+          CAP_MAJOR: ${{ steps.node_version.outputs.capacitor_major }}
+        run: |
+          # Map Capacitor version to minimum iOS deployment target
+          # Capacitor 5: iOS 13.0 | Capacitor 6: iOS 13.0 | Capacitor 7: iOS 14.0 | Capacitor 8+: iOS 15.0
+          if [ "$CAP_MAJOR" -ge 8 ]; then
+            IOS_TARGET="15.0"
+          elif [ "$CAP_MAJOR" -eq 7 ]; then
+            IOS_TARGET="14.0"
+          elif [ "$CAP_MAJOR" -eq 6 ] || [ "$CAP_MAJOR" -eq 5 ]; then
+            IOS_TARGET="13.0"
+          else
+            IOS_TARGET="15.0"
+          fi
+          
+          echo "🔧 Capacitor $CAP_MAJOR detected. Setting iOS deployment target to $IOS_TARGET..."
+          
+          # 1. Update Podfile platform version
+          if [ -f "Podfile" ]; then
+            echo "  📝 Updating Podfile platform to iOS $IOS_TARGET..."
+            sed -i.bak "s/platform :ios, '[0-9.]*'/platform :ios, '$IOS_TARGET'/g" Podfile
+            rm -f Podfile.bak
+            grep "platform :ios" Podfile || echo "  ⚠️ Could not find platform line"
+          fi
+          
+          # 2. Update App.xcodeproj IPHONEOS_DEPLOYMENT_TARGET for all targets
+          echo "  📝 Updating Xcode project deployment target..."
+          ruby -e "
+          require 'xcodeproj'
+          
+          ios_target = '$IOS_TARGET'
+          project_path = 'App.xcodeproj'
+          project = Xcodeproj::Project.open(project_path)
+          
+          # Update project-level build settings
+          project.build_configurations.each do |config|
+            config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = ios_target
+            puts \"  ✅ Updated project config: #{config.name}\"
+          end
+          
+          # Update all targets
+          project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = ios_target
+            end
+            puts \"  ✅ Updated target: #{target.name}\"
+          end
+          
+          project.save
+          puts \"✅ Xcode project updated to iOS #{ios_target} deployment target\"
+          "
+          
+          # 3. Run pod install to update Pods deployment targets
+          echo "  🔄 Running pod install to update Pods..."
+          pod install
+          
+          echo "✅ iOS deployment target updated to $IOS_TARGET"
       
       - name: Enable Mac Catalyst Support
         if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
@@ -964,6 +1029,109 @@ jobs:
             fi
           fi
       
+      - name: Ensure App Exists on App Store Connect
+        if: inputs.build_mode == 'publish_to_appstore'
+        working-directory: app
+        run: |
+          echo "📱 Ensuring app exists on App Store Connect..."
+          
+          # Generate API Key JSON file
+          API_KEY_JSON_PATH="api_key.json"
+          API_KEY_CONTENT=$(echo "${{ steps.apple.outputs.api_key_base64 }}" | base64 --decode)
+          
+          jq -n \
+            --arg key_id "${{ steps.apple.outputs.api_key_id }}" \
+            --arg issuer_id "${{ steps.apple.outputs.api_issuer_id }}" \
+            --arg key "$API_KEY_CONTENT" \
+            '{key_id: $key_id, issuer_id: $issuer_id, key: $key}' > "$API_KEY_JSON_PATH"
+          
+          # Generate SKU from bundle ID (replace dots with dashes)
+          BUNDLE_ID="${{ steps.capacitor.outputs.bundle_id }}"
+          SKU=$(echo "$BUNDLE_ID" | tr '.' '-')
+          APP_NAME="${{ steps.capacitor.outputs.app_name }}"
+          TEAM_ID="${{ steps.apple.outputs.team_id }}"
+          
+          # Detect primary language from fastlane/metadata (same logic as localized app names)
+          # Mapping function: Convert locale codes to App Store Connect language names
+          map_locale_to_language() {
+            case "$1" in
+              "en-US"|"en") echo "English" ;;
+              "pt-BR") echo "Brazilian Portuguese" ;;
+              "pt-PT") echo "Portuguese" ;;
+              "es-ES"|"es-MX"|"es") echo "Spanish" ;;
+              "fr-FR"|"fr-CA"|"fr") echo "French" ;;
+              "de-DE"|"de") echo "German" ;;
+              "it"|"it-IT") echo "Italian" ;;
+              "ja"|"ja-JP") echo "Japanese" ;;
+              "ko"|"ko-KR") echo "Korean" ;;
+              "zh-Hans"|"zh-CN") echo "Simplified Chinese" ;;
+              "zh-Hant"|"zh-TW") echo "Traditional Chinese" ;;
+              "nl-NL"|"nl") echo "Dutch" ;;
+              "ru"|"ru-RU") echo "Russian" ;;
+              "tr"|"tr-TR") echo "Turkish" ;;
+              "ar-SA"|"ar") echo "Arabic" ;;
+              "th"|"th-TH") echo "Thai" ;;
+              "vi"|"vi-VN") echo "Vietnamese" ;;
+              "id"|"id-ID") echo "Indonesian" ;;
+              "ms"|"ms-MY") echo "Malay" ;;
+              "pl"|"pl-PL") echo "Polish" ;;
+              "uk"|"uk-UA") echo "Ukrainian" ;;
+              "cs"|"cs-CZ") echo "Czech" ;;
+              "el"|"el-GR") echo "Greek" ;;
+              "he"|"he-IL") echo "Hebrew" ;;
+              "hi"|"hi-IN") echo "Hindi" ;;
+              "hu"|"hu-HU") echo "Hungarian" ;;
+              "ro"|"ro-RO") echo "Romanian" ;;
+              "sk"|"sk-SK") echo "Slovak" ;;
+              "sv"|"sv-SE") echo "Swedish" ;;
+              "da"|"da-DK") echo "Danish" ;;
+              "fi"|"fi-FI") echo "Finnish" ;;
+              "no"|"no-NO") echo "Norwegian" ;;
+              "ca"|"ca-ES") echo "Catalan" ;;
+              *) echo "English" ;;  # Default fallback
+            esac
+          }
+          
+          # Detect primary locale
+          if [ -f "fastlane/metadata/primary_locale.txt" ]; then
+            PRIMARY_LOCALE=$(cat "fastlane/metadata/primary_locale.txt" | tr -d '\n')
+            echo "  📍 Primary locale from config: $PRIMARY_LOCALE"
+          elif [ -d "fastlane/metadata" ]; then
+            # Use first available locale folder
+            PRIMARY_LOCALE=$(ls -1 fastlane/metadata/ 2>/dev/null | head -1)
+            echo "  📍 Primary locale (first folder): $PRIMARY_LOCALE"
+          else
+            PRIMARY_LOCALE="en-US"
+            echo "  📍 No fastlane/metadata found, defaulting to: $PRIMARY_LOCALE"
+          fi
+          
+          # Convert locale to App Store Connect language name
+          LANGUAGE=$(map_locale_to_language "$PRIMARY_LOCALE")
+          
+          echo "   Bundle ID: $BUNDLE_ID"
+          echo "   App Name: $APP_NAME"
+          echo "   SKU: $SKU"
+          echo "   Language: $LANGUAGE (from $PRIMARY_LOCALE)"
+          
+          # Run produce - creates app if doesn't exist, skips if it does
+          # skip_devcenter:true because App ID should already exist on Developer Portal
+          fastlane run produce \
+            api_key_path:"$API_KEY_JSON_PATH" \
+            app_identifier:"$BUNDLE_ID" \
+            app_name:"$APP_NAME" \
+            sku:"$SKU" \
+            team_id:"$TEAM_ID" \
+            language:"$LANGUAGE" \
+            skip_devcenter:true || {
+              echo "⚠️ produce returned non-zero, but continuing..."
+              echo "   (App may already exist or there was a non-critical warning)"
+            }
+          
+          # Cleanup
+          rm -f "$API_KEY_JSON_PATH"
+          
+          echo "✅ App Store Connect check complete"
+      
       - name: Upload to App Store
         if: inputs.build_mode == 'publish_to_appstore'
         working-directory: app/ios/App
@@ -991,8 +1159,10 @@ jobs:
               api_key_path:"$API_KEY_JSON_PATH" \
               ipa:"${APP_NAME_SAFE}-iOS.ipa" \
               platform:"ios" \
-              skip_metadata:true \
-              skip_screenshots:true \
+              skip_metadata:false \
+              skip_screenshots:false \
+              metadata_path:"$GITHUB_WORKSPACE/app/fastlane/metadata" \
+              screenshots_path:"$GITHUB_WORKSPACE/app/fastlane/screenshots" \
               run_precheck_before_submit:false \
               submit_for_review:false
           fi
@@ -1016,8 +1186,10 @@ jobs:
                 api_key_path:"$API_KEY_JSON_PATH" \
                 ipa:"$MAC_FILE" \
                 platform:"osx" \
-                skip_metadata:true \
-                skip_screenshots:true \
+                skip_metadata:false \
+                skip_screenshots:false \
+                metadata_path:"$GITHUB_WORKSPACE/app/fastlane/metadata" \
+                screenshots_path:"$GITHUB_WORKSPACE/app/fastlane/screenshots" \
                 run_precheck_before_submit:false \
                 submit_for_review:false
             else
@@ -1025,8 +1197,10 @@ jobs:
                 api_key_path:"$API_KEY_JSON_PATH" \
                 pkg:"$MAC_FILE" \
                 platform:"osx" \
-                skip_metadata:true \
-                skip_screenshots:true \
+                skip_metadata:false \
+                skip_screenshots:false \
+                metadata_path:"$GITHUB_WORKSPACE/app/fastlane/metadata" \
+                screenshots_path:"$GITHUB_WORKSPACE/app/fastlane/screenshots" \
                 run_precheck_before_submit:false \
                 submit_for_review:false
             fi
