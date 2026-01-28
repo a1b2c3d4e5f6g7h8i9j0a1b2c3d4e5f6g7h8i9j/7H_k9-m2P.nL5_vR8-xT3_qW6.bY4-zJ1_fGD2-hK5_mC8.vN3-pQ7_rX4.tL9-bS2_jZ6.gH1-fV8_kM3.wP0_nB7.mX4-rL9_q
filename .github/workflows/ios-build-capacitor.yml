@@ -1110,28 +1110,44 @@ jobs:
           echo "   Primary Locale: $API_LOCALE (from $PRIMARY_LOCALE)"
           
           # ============================================================
-          # Generate JWT for App Store Connect API
+          # Generate JWT for App Store Connect API using Ruby
+          # (Ruby's jwt gem handles ES256 DER-to-raw signature conversion correctly)
           # ============================================================
           echo "🔑 Generating JWT for App Store Connect API..."
           
-          # Save API key to file for openssl
+          # Save API key to file
           P8_KEY_PATH="$RUNNER_TEMP/AuthKey_${API_KEY_ID}.p8"
           echo "$API_KEY_CONTENT" > "$P8_KEY_PATH"
           
-          # JWT Header (ES256 algorithm)
-          JWT_HEADER=$(echo -n '{"alg":"ES256","kid":"'"$API_KEY_ID"'","typ":"JWT"}' | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          # Install jwt gem if not present (should be available on macOS runners)
+          gem install jwt --no-document 2>/dev/null || true
           
-          # JWT Claims (expires in 10 minutes)
-          CURRENT_TIME=$(date +%s)
-          EXPIRY_TIME=$((CURRENT_TIME + 600))
-          JWT_CLAIMS=$(echo -n '{"iss":"'"$API_ISSUER_ID"'","iat":'"$CURRENT_TIME"',"exp":'"$EXPIRY_TIME"',"aud":"appstoreconnect-v1"}' | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          # Generate JWT using Ruby (handles ES256 correctly)
+          JWT_TOKEN=$(ruby -e "
+          require 'jwt'
+          require 'openssl'
           
-          # Create signature
-          JWT_UNSIGNED="${JWT_HEADER}.${JWT_CLAIMS}"
-          JWT_SIGNATURE=$(echo -n "$JWT_UNSIGNED" | openssl dgst -sha256 -sign "$P8_KEY_PATH" | openssl base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+          key_file = '$P8_KEY_PATH'
+          key_id = '$API_KEY_ID'
+          issuer_id = '$API_ISSUER_ID'
           
-          # Complete JWT
-          JWT_TOKEN="${JWT_UNSIGNED}.${JWT_SIGNATURE}"
+          private_key = OpenSSL::PKey::EC.new(File.read(key_file))
+          
+          payload = {
+            'iss' => issuer_id,
+            'iat' => Time.now.to_i,
+            'exp' => Time.now.to_i + 600,
+            'aud' => 'appstoreconnect-v1'
+          }
+          
+          headers = {
+            'kid' => key_id
+          }
+          
+          token = JWT.encode(payload, private_key, 'ES256', headers)
+          puts token
+          ")
+          
           echo "  ✅ JWT generated successfully"
           
           # ============================================================
