@@ -1082,8 +1082,8 @@ jobs:
               team_id:"$TEAM_ID" \
               ipa:"${APP_NAME_SAFE}-iOS.ipa" \
               platform:"ios" \
-              skip_metadata:false \
-              skip_screenshots:false \
+              skip_metadata:true \
+              skip_screenshots:true \
               metadata_path:"$GITHUB_WORKSPACE/app/fastlane/metadata" \
               screenshots_path:"$GITHUB_WORKSPACE/app/fastlane/screenshots" \
               run_precheck_before_submit:false \
@@ -1110,8 +1110,8 @@ jobs:
                 team_id:"$TEAM_ID" \
                 ipa:"$MAC_FILE" \
                 platform:"osx" \
-                skip_metadata:false \
-                skip_screenshots:false \
+                skip_metadata:true \
+                skip_screenshots:true \
                 metadata_path:"$GITHUB_WORKSPACE/app/fastlane/metadata" \
                 screenshots_path:"$GITHUB_WORKSPACE/app/fastlane/screenshots" \
                 run_precheck_before_submit:false \
@@ -1123,8 +1123,8 @@ jobs:
                 team_id:"$TEAM_ID" \
                 pkg:"$MAC_FILE" \
                 platform:"osx" \
-                skip_metadata:false \
-                skip_screenshots:false \
+                skip_metadata:true \
+                skip_screenshots:true \
                 metadata_path:"$GITHUB_WORKSPACE/app/fastlane/metadata" \
                 screenshots_path:"$GITHUB_WORKSPACE/app/fastlane/screenshots" \
                 run_precheck_before_submit:false \
