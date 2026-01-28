@@ -1138,31 +1138,30 @@ jobs:
         if: inputs.build_mode == 'publish_to_appstore'
         working-directory: app/ios/App
         run: |
-          # Generate API Key JSON file (required for upload_to_app_store)
-          API_KEY_JSON_PATH="api_key.json"
+          # Get API key content
           API_KEY_CONTENT=$(echo "${{ steps.apple.outputs.api_key_base64 }}" | base64 --decode)
           
-          # Use jq to construct the JSON file safely (handles newline escaping automatically)
-          jq -n \
-            --arg key_id "${{ steps.apple.outputs.api_key_id }}" \
-            --arg issuer_id "${{ steps.apple.outputs.api_issuer_id }}" \
-            --arg key "$API_KEY_CONTENT" \
-            '{key_id: $key_id, issuer_id: $issuer_id, key: $key}' > "$API_KEY_JSON_PATH"
-          
-          echo "✅ Generated api_key.json"
-          
-          # Detect files to upload
-          # We check for specific platform files first (iOS vs Mac)
-          
-          # Required for upload_to_app_store with API key auth
+          # Required for upload_to_app_store
           BUNDLE_ID="${{ steps.capacitor.outputs.bundle_id }}"
           TEAM_ID="${{ steps.apple.outputs.team_id }}"
+          
+          echo "📦 Setting up App Store Connect API key..."
+          
+          # IMPORTANT: Call app_store_connect_api_key FIRST to initialize the API context
+          # This prevents the 'undefined method team_id for nil' error in deliver
+          # Using key_content instead of key_filepath since we have the raw .p8 content
+          fastlane run app_store_connect_api_key \
+            key_id:"${{ steps.apple.outputs.api_key_id }}" \
+            issuer_id:"${{ steps.apple.outputs.api_issuer_id }}" \
+            key_content:"$API_KEY_CONTENT" \
+            in_house:false
+          
+          echo "✅ API key initialized"
           
           # 1. Upload iOS (if exists)
           if [ -f "${APP_NAME_SAFE}-iOS.ipa" ]; then
             echo "📱 Uploading iOS IPA: ${APP_NAME_SAFE}-iOS.ipa"
             fastlane run upload_to_app_store \
-              api_key_path:"$API_KEY_JSON_PATH" \
               app_identifier:"$BUNDLE_ID" \
               team_id:"$TEAM_ID" \
               ipa:"${APP_NAME_SAFE}-iOS.ipa" \
@@ -1176,7 +1175,6 @@ jobs:
           fi
 
           # 2. Upload Mac (if exists - checking ipa and pkg)
-          # Note: build_app typically outputs .ipa for catalyst, but we check both just in case
           MAC_FILE=""
           if [ -f "${APP_NAME_SAFE}-Mac.ipa" ]; then
              MAC_FILE="${APP_NAME_SAFE}-Mac.ipa"
@@ -1191,7 +1189,6 @@ jobs:
             
             if [ "$MAC_TYPE" == "ipa" ]; then
                fastlane run upload_to_app_store \
-                api_key_path:"$API_KEY_JSON_PATH" \
                 app_identifier:"$BUNDLE_ID" \
                 team_id:"$TEAM_ID" \
                 ipa:"$MAC_FILE" \
@@ -1204,7 +1201,6 @@ jobs:
                 submit_for_review:false
             else
                fastlane run upload_to_app_store \
-                api_key_path:"$API_KEY_JSON_PATH" \
                 app_identifier:"$BUNDLE_ID" \
                 team_id:"$TEAM_ID" \
                 pkg:"$MAC_FILE" \
