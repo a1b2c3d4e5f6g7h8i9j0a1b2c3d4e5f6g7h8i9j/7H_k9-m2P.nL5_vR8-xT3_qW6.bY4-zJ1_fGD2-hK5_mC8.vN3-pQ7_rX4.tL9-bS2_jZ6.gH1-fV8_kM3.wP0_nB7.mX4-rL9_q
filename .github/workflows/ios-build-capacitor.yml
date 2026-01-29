@@ -1029,23 +1029,6 @@ jobs:
             fi
           fi
       
-      - name: Ensure App Exists on App Store Connect
-        if: inputs.build_mode == 'publish_to_appstore'
-        run: |
-          echo "ℹ️ AUTOMATION SKIPPED: App creation on App Store Connect"
-          echo ""
-          echo "Please ensure you have created the app manually on App Store Connect:"
-          echo "� https://appstoreconnect.apple.com/apps"
-          echo ""
-          echo "Use these details:"
-          echo " - Name:       ${{ steps.capacitor.outputs.app_name }}"
-          echo " - Bundle ID:  ${{ steps.capacitor.outputs.bundle_id }}"
-          echo " - SKU:        $(echo "${{ steps.capacitor.outputs.bundle_id }}" | tr '.' '-')"
-          echo " - Language:   English (U.S.)"
-          echo ""
-          echo "⚠️ If the app does not exist, the 'Upload to App Store' step below will fail."
-          echo "✅ Continuing..."
-      
       - name: Upload to App Store
         if: inputs.build_mode == 'publish_to_appstore'
         working-directory: app/ios/App
