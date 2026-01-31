@@ -234,7 +234,7 @@ jobs:
         working-directory: app
         run: ${{ inputs.npm_build_command }}
       
-      - name: Sync Capacitor iOS
+      - name: Sync Capacitor iOS (without pod install)
         working-directory: app
         run: |
           WEB_DIR="${{ steps.capacitor.outputs.web_dir }}"
@@ -262,7 +262,17 @@ jobs:
             echo "✅ Web directory '$WEB_DIR' found."
           fi
 
-          npx cap sync ios
+          # Add iOS platform if it doesn't exist (skip pod install - will run later after Podfile is patched)
+          if [ ! -d "ios" ]; then
+            echo "📦 Adding iOS platform..."
+            npx cap add ios --skip-pod-install
+          fi
+
+          # Copy web assets only (no pod install)
+          echo "📦 Copying web assets..."
+          npx cap copy ios
+
+          echo "✅ Capacitor iOS files synced (pod install will run after deployment target is set)"
       
       - name: Patch RevenueCat for Mac Catalyst
         if: inputs.target_platform == 'all_devices' || inputs.target_platform == 'macos_only'
